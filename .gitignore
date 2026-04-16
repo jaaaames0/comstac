@@ -1,0 +1,36 @@
+# ── Secrets & credentials ─────────────────────────────────────────────────────
+comstac.env
+comstac-dev.env
+*.env
+client_secret_*.json
+cookies.txt
+
+# ── Databases (contain real email data) ───────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+
+# ── Build outputs ─────────────────────────────────────────────────────────────
+comstac
+sovereign
+*.test
+*.out
+
+# ── Systemd unit files (contain paths/user info) ──────────────────────────────
+*.service
+*.timer
+
+# ── AI tooling (local collaboration state — not source) ───────────────────────
+AGENDA.md
+CLAUDE.md
+DEV_COMPANION.md
+SYSTEM.md
+SPECS.md
+.codex
+.claude/
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
