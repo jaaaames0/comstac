@@ -1,0 +1,145 @@
+{{define "accounts"}}
+<div class="form-pane">
+  <div class="form-title">accounts</div>
+
+  <table class="acc-table" style="margin-bottom:20px">
+    <thead>
+      <tr><th>email</th><th>name</th><th>created</th></tr>
+    </thead>
+    <tbody>
+      {{range .Accounts}}
+      <tr>
+        <td>{{.EmailAddress}}</td>
+        <td>{{.Name}}</td>
+        <td style="color:var(--dim)">{{.CreatedAt}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="3" style="color:var(--dim);padding:16px 12px">no accounts</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+
+  <div class="form-title" style="margin-bottom:14px">add account</div>
+  <form hx-post="/ui/accounts" hx-target="#reading-pane" hx-swap="innerHTML"
+        style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+    <div class="form-field" style="margin:0">
+      <label class="form-label">email *</label>
+      <input class="form-input" style="width:220px" name="email" type="email" required placeholder="user@example.com"/>
+    </div>
+    <div class="form-field" style="margin:0">
+      <label class="form-label">name</label>
+      <input class="form-input" style="width:160px" name="name" type="text" placeholder="display name"/>
+    </div>
+    <button class="act-p" type="submit">add</button>
+  </form>
+  <p style="font-size:11px;color:var(--dim);margin-top:12px">smtp routing updates take effect on next restart.</p>
+
+  {{if eq .OAuthStatus "ok"}}
+  <p style="color:var(--accent);font-size:12px;margin-top:16px">✓ re-authorization successful — imap fetcher will resume shortly.</p>
+  {{end}}
+
+  {{if .IMAPAuthFailed}}
+  <div style="margin-top:20px;padding:12px 14px;background:color-mix(in srgb,var(--danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--danger) 40%,transparent);border-radius:4px">
+    <div style="color:var(--danger);font-weight:600;font-size:12px;margin-bottom:6px">⚠ imap auth failure{{if .IMAPAuthFailedAt}} — since {{.IMAPAuthFailedAt}}{{end}}</div>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:10px">
+      Gmail IMAP is not fetching. The OAuth token has been revoked or expired (<code>invalid_grant</code>).
+      New messages from Gmail will not arrive until this is resolved.
+    </p>
+    {{if .OAuthEnabled}}
+    <a href="/ui/oauth/start" class="act-p" style="display:inline-block;text-decoration:none">re-authorize gmail</a>
+    {{else}}
+    <p style="color:var(--dim);font-size:11px">Run <code>comstac authorize</code> on the server to re-authenticate, then restart the service.</p>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if .VAPIDPublicKey}}
+  <div id="push-section" style="margin-top:20px;padding:12px 14px;background:color-mix(in srgb,var(--surface) 60%,transparent);border:1px solid var(--border);border-radius:4px">
+    <div style="font-weight:600;font-size:12px;margin-bottom:6px">push notifications</div>
+    <p id="push-status" style="color:var(--muted);font-size:12px;margin-bottom:10px">
+      {{if .PushCount}}push notifications enabled ({{.PushCount}} device{{if ne .PushCount 1}}s{{end}}){{else}}not subscribed{{end}}
+    </p>
+    <button id="push-toggle" class="act-p" type="button" onclick="togglePush()">{{if .PushCount}}disable{{else}}enable{{end}}</button>
+    <p id="push-error" style="color:var(--danger);font-size:11px;margin-top:6px;display:none"></p>
+  </div>
+  <script>
+  var pushVAPIDKey = "{{.VAPIDPublicKey}}";
+
+  function csrfToken() {
+    try { return JSON.parse(document.body.getAttribute('hx-headers'))['X-CSRF-Token'] || ''; }
+    catch(e) { return ''; }
+  }
+
+  async function togglePush() {
+    var btn = document.getElementById('push-toggle');
+    var status = document.getElementById('push-status');
+    var errMsg = document.getElementById('push-error');
+    errMsg.style.display = 'none';
+    btn.disabled = true;
+    try {
+      var reg = await navigator.serviceWorker.register('/sw.js');
+      var sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await fetch('/ui/push/unsubscribe', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken()},
+          body: JSON.stringify({endpoint: sub.endpoint})
+        });
+        await sub.unsubscribe();
+        status.textContent = 'not subscribed';
+        status.style.color = 'var(--muted)';
+        btn.textContent = 'enable';
+      } else {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(pushVAPIDKey)
+        });
+        await fetch('/ui/push/subscribe', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken()},
+          body: JSON.stringify({
+            endpoint: sub.endpoint,
+            p256dh: arrayBufferToBase64(sub.getKey('p256dh')),
+            auth: arrayBufferToBase64(sub.getKey('auth'))
+          })
+        });
+        status.textContent = 'push notifications enabled (1 device)';
+        status.style.color = 'var(--accent)';
+        btn.textContent = 'disable';
+      }
+    } catch(e) {
+      errMsg.textContent = 'error: ' + e.message;
+      errMsg.style.display = 'block';
+      console.error('push error:', e);
+    }
+    btn.disabled = false;
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    var padding = '='.repeat((4 - base64String.length % 4) % 4);
+    var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var rawData = atob(base64);
+    var outputArray = new Uint8Array(rawData.length);
+    for (var i = 0; i < rawData.length; i++) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  function arrayBufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = '';
+    for (var i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+  </script>
+  {{else}}
+  <div style="margin-top:20px;padding:12px 14px;background:color-mix(in srgb,var(--surface) 60%,transparent);border:1px solid var(--border);border-radius:4px">
+    <div style="font-weight:600;font-size:12px;margin-bottom:6px">push notifications</div>
+    <p style="color:var(--muted);font-size:12px">not configured. Run <code>comstac vapid</code> to generate keys and add them to your environment.</p>
+  </div>
+  {{end}}
+</div>
+{{end}}

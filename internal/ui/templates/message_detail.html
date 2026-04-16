@@ -1,0 +1,94 @@
+{{define "message_detail"}}
+<div class="msg-detail-wrap" data-id="{{.ID}}" data-read="{{if .Read}}1{{else}}0{{end}}">
+<div class="msg-header">
+  <div class="msg-subject-line">{{.Subject}}</div>
+
+  <div class="msg-fields">
+    <span class="mf-label">from</span><span>{{.FromAddr}}</span>
+    <span class="mf-label">to</span>  <span>{{.ToAddr}}</span>
+    <span class="mf-label">date</span><span>{{fmtFullDate .SentAt}}</span>
+  </div>
+
+  {{if .Auth}}
+  <div class="auth-row">
+    {{if .Auth.SPF}}
+    <span class="auth-badge auth-{{authClass .Auth.SPF}}">spf:{{.Auth.SPF}}{{if .Auth.SPFDomain}} ({{.Auth.SPFDomain}}){{end}}</span>
+    {{end}}
+    {{if .Auth.DKIM}}
+    <span class="auth-badge auth-{{authClass .Auth.DKIM}}">dkim:{{.Auth.DKIM}}{{if .Auth.DKIMDomain}} ({{.Auth.DKIMDomain}}){{end}}</span>
+    {{end}}
+    {{if .Auth.DMARC}}
+    <span class="auth-badge auth-{{authClass .Auth.DMARC}}">dmarc:{{.Auth.DMARC}}</span>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if .Spam}}
+  <div class="spam-banner">⚠ marked as spam</div>
+  {{end}}
+
+  {{if .SnoozeUntil}}
+  <div class="snooze-banner">⏰ snoozed until {{fmtSnooze .SnoozeUntil}}</div>
+  {{end}}
+
+  <div class="msg-acts">
+    {{/* Reply — always primary */}}
+    <button class="act-p"
+            hx-get="/ui/reply?id={{.ID}}"
+            hx-target="#reading-pane"
+            hx-swap="innerHTML">↩ reply</button>
+
+    {{/* Restore (if trashed) or secondary actions (if in inbox) */}}
+    {{if .Archived}}
+      {{actionBtn .ID "archive" "0" "restore" "act-s"}}
+    {{else}}
+      {{/* Mark Unread — only shown once auto-read has fired */}}
+      {{if .Read}}
+        {{actionBtn .ID "read" "0" "mark unread" "act-s"}}
+      {{end}}
+
+      {{/* Snooze — show clear if snoozed, else offer snooze */}}
+      {{if .SnoozeUntil}}
+        {{actionBtn .ID "clear_snooze" "" "clear snooze" "act-s"}}
+      {{else}}
+      <form style="display:inline" hx-post="/ui/message/actions" hx-target="#reading-pane" hx-swap="innerHTML">
+        <input type="hidden" name="id"     value="{{.ID}}"/>
+        <input type="hidden" name="action" value="snooze"/>
+        <input type="hidden" name="hours"  value="24"/>
+        <button class="act-s" type="submit">snooze 24h</button>
+      </form>
+      {{end}}
+
+      {{/* Spam — context aware */}}
+      {{if .Spam}}
+        {{actionBtn .ID "spam" "0" "not spam" "act-s"}}
+      {{else}}
+        {{actionBtn .ID "spam" "1" "mark spam" "act-d"}}
+      {{end}}
+
+      {{/* Trash — rightmost, danger colour */}}
+      {{actionBtn .ID "archive" "1" "trash" "act-trash"}}
+    {{end}}
+  </div>
+</div>
+
+{{if .Attachments}}
+<div class="attachments">
+  <div class="att-label">attachments</div>
+  {{range .Attachments}}
+  <a class="att-link" href="/ui/attachment?id={{$.ID}}&part={{.Index}}" download>
+    {{.Filename}}{{if .ContentType}} <span class="att-type">({{.ContentType}})</span>{{end}}
+  </a>
+  {{end}}
+</div>
+{{end}}
+
+<div class="msg-body{{if .BodyHTML}} msg-body--html{{end}}">
+  {{if .BodyHTML}}
+  <iframe class="body-iframe" srcdoc="{{.BodyHTML}}" sandbox="" loading="lazy"></iframe>
+  {{else}}
+  <pre class="body-text">{{.BodyText}}</pre>
+  {{end}}
+</div>
+</div>{{/* end .msg-detail-wrap */}}
+{{end}}

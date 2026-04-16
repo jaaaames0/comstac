@@ -1,0 +1,1 @@
+ALTER TABLE messages ADD COLUMN auth_results TEXT NOT NULL DEFAULT '';

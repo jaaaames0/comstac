@@ -1,0 +1,21 @@
+{{define "compose"}}
+<div class="form-pane">
+  <div class="form-title">compose</div>
+  <form hx-post="/ui/compose" hx-target="#reading-pane" hx-swap="innerHTML">
+    <div class="form-field">
+      <label class="form-label">to</label>
+      <input class="form-input" name="to" type="email" required value="{{.To}}" placeholder="recipient@example.com"/>
+    </div>
+    {{template "cc_bcc" .}}
+    <div class="form-field">
+      <label class="form-label">subject</label>
+      <input class="form-input" name="subject" type="text" value="{{.Subject}}" placeholder="subject"/>
+    </div>
+    <div class="form-field">
+      <label class="form-label">body</label>
+      <textarea class="form-input" name="body" rows="14">{{.Body}}</textarea>
+    </div>
+    <button class="act-p" type="submit">send</button>
+  </form>
+</div>
+{{end}}

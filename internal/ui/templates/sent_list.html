@@ -1,0 +1,27 @@
+{{define "sent_list"}}
+<div id="message-list">
+  {{if not .Items}}
+  <div class="list-empty">no sent mail</div>
+  {{else}}
+  {{range .Items}}
+  <div class="msg-row">
+    <span class="msg-sender">{{.ToAddr}}</span>
+    <span class="msg-subject">
+      {{.Subject}}
+      {{if eq .Status "failed"}}<span class="badge badge-spam" style="margin-left:5px">failed</span>{{end}}
+    </span>
+    <div class="msg-right">
+      <span class="msg-time">{{fmtTime .CreatedAt}}</span>
+    </div>
+  </div>
+  {{end}}
+
+  {{if .MoreURL}}
+  <button class="load-more-btn"
+          hx-get="{{.MoreURL}}"
+          hx-target="#message-list"
+          hx-swap="outerHTML">load older</button>
+  {{end}}
+  {{end}}
+</div>
+{{end}}
