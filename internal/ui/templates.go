@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/mail"
 	"strconv"
+	"strings"
 	"time"
 	_ "time/tzdata" // embed IANA timezone data so Australia/Sydney works without system tzdata
 
@@ -58,6 +59,16 @@ var sydneyLoc = func() *time.Location {
 	return loc
 }()
 
+// parseTimestamp parses a timestamp string in RFC3339 or common SQLite formats.
+func parseTimestamp(s string) (time.Time, error) {
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02 15:04:05"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognised timestamp: %q", s)
+}
+
 // fmtTime formats a SQLite timestamp string as a Gmail-style expanding date
 // in Australia/Sydney time: HH:MM today, "Mon HH:MM" this week,
 // "2 Jan" this year, "02/01/06" prior years.
@@ -65,14 +76,7 @@ func fmtTime(s string) string {
 	if s == "" {
 		return ""
 	}
-	var t time.Time
-	var err error
-	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02 15:04:05"} {
-		t, err = time.Parse(layout, s)
-		if err == nil {
-			break
-		}
-	}
+	t, err := parseTimestamp(s)
 	if err != nil {
 		return s
 	}
@@ -180,7 +184,9 @@ func newMessageListData(items []store.MessageListItem, opts store.ListMessageOpt
 
 type messageDetailData struct {
 	store.MessageDetail
-	Auth *validation.Result
+	Auth        *validation.Result
+	HasReplyAll bool   // true when there are other recipients worth reply-all-ing
+	BodyHTML    string // BodyHTML with <base target="_blank"> injected; shadows embedded field
 }
 
 func newMessageDetailData(d *store.MessageDetail) messageDetailData {
@@ -190,6 +196,10 @@ func newMessageDetailData(d *store.MessageDetail) messageDetailData {
 		if err := json.Unmarshal([]byte(d.AuthResults), &res); err == nil {
 			out.Auth = &res
 		}
+	}
+	out.HasReplyAll = d.CcAddr != "" || strings.Contains(d.ToAddr, ",")
+	if d.BodyHTML != "" {
+		out.BodyHTML = `<base target="_blank">` + d.BodyHTML
 	}
 	return out
 }
@@ -208,6 +218,7 @@ type accountsData struct {
 }
 
 type composeData struct {
+	Title   string // "compose" or "forward"; defaults to "compose" in template
 	To      string
 	Subject string
 	Body    string
@@ -216,6 +227,7 @@ type composeData struct {
 type replyData struct {
 	ReplyToID  int64
 	To         string
+	CC         string // pre-filled for reply-all
 	Subject    string
 	QuotedBody string
 }
@@ -249,14 +261,7 @@ func fmtFullDate(s string) string {
 	if s == "" {
 		return ""
 	}
-	var t time.Time
-	var err error
-	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02 15:04:05"} {
-		t, err = time.Parse(layout, s)
-		if err == nil {
-			break
-		}
-	}
+	t, err := parseTimestamp(s)
 	if err != nil {
 		return s
 	}

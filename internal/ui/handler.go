@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/mail"
@@ -187,20 +188,25 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 			execute(w, "send_error", sendErrorData{Msg: "Relay not configured."})
 			return
 		}
-		to := strings.TrimSpace(req.FormValue("to"))
+		if err := req.ParseMultipartForm(25 << 20); err != nil && err != http.ErrNotMultipart {
+			http.Error(w, "failed to parse form", http.StatusBadRequest)
+			return
+		}
+		to := parseAddressList(req.FormValue("to"))
 		subject := strings.TrimSpace(req.FormValue("subject"))
 		body := strings.TrimSpace(req.FormValue("body"))
 		cc := parseAddressList(req.FormValue("cc"))
 		bcc := parseAddressList(req.FormValue("bcc"))
-		if to == "" {
-			execute(w, "compose", composeData{To: to, Subject: subject, Body: body})
+		attachments := extractAttachments(req)
+		if len(to) == 0 {
+			execute(w, "compose", composeData{Subject: subject, Body: body})
 			return
 		}
 		msgID, rawMIME, sendErr := r.Send(req.Context(), relay.OutboundMessage{
-			To: to, CC: cc, BCC: bcc, Subject: subject, BodyText: body,
+			To: to, CC: cc, BCC: bcc, Subject: subject, BodyText: body, Attachments: attachments,
 		})
 		if db != nil {
-			if _, err := store.SaveOutbound(req.Context(), db, r.From(), to, subject, body, msgID, 0, rawMIME, sendErr); err != nil {
+			if _, err := store.SaveOutbound(req.Context(), db, r.From(), strings.Join(to, ", "), subject, body, msgID, 0, rawMIME, sendErr); err != nil {
 				slog.Error("save outbound", "component", "ui", "err", err)
 			}
 		}
@@ -209,7 +215,38 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 			execute(w, "send_error", sendErrorData{Msg: sendErr.Error()})
 			return
 		}
-		execute(w, "send_success", sendSuccessData{To: to, Subject: subject})
+		execute(w, "send_success", sendSuccessData{To: strings.Join(to, ", "), Subject: subject})
+	})
+
+	mux.HandleFunc("/ui/forward", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if db == nil {
+			http.Error(w, "database not configured", http.StatusInternalServerError)
+			return
+		}
+		id, err := strconv.ParseInt(req.URL.Query().Get("id"), 10, 64)
+		if err != nil || id <= 0 {
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+		detail, err := store.GetMessageDetail(req.Context(), db, id)
+		if err != nil || detail == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		body := "\n\n--- Forwarded message ---\nFrom: " + detail.FromAddr +
+			"\nDate: " + detail.DateHdr +
+			"\nSubject: " + detail.Subject +
+			"\n\n" + detail.BodyText
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		execute(w, "compose", composeData{
+			Title:   "forward",
+			Subject: relay.ForwardSubject(detail.Subject),
+			Body:    body,
+		})
 	})
 
 	mux.HandleFunc("/ui/reply", func(w http.ResponseWriter, req *http.Request) {
@@ -236,9 +273,14 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
+			cc := ""
+			if req.URL.Query().Get("all") == "1" {
+				cc = buildReplyAllCC(detail, r)
+			}
 			execute(w, "reply", replyData{
 				ReplyToID:  id,
 				To:         extractEmailAddress(detail.FromAddr),
+				CC:         cc,
 				Subject:    relay.ReplySubject(detail.Subject),
 				QuotedBody: "\n\n---\n" + strings.ReplaceAll(strings.TrimSpace(detail.BodyText), "\n", "\n> "),
 			})
@@ -253,12 +295,17 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 			execute(w, "send_error", sendErrorData{Msg: "Relay not configured."})
 			return
 		}
+		if err := req.ParseMultipartForm(25 << 20); err != nil && err != http.ErrNotMultipart {
+			http.Error(w, "failed to parse form", http.StatusBadRequest)
+			return
+		}
 		replyToID, _ := strconv.ParseInt(req.FormValue("id"), 10, 64)
-		to := strings.TrimSpace(req.FormValue("to"))
+		to := parseAddressList(req.FormValue("to"))
 		subject := strings.TrimSpace(req.FormValue("subject"))
 		body := strings.TrimSpace(req.FormValue("body"))
 		cc := parseAddressList(req.FormValue("cc"))
 		bcc := parseAddressList(req.FormValue("bcc"))
+		attachments := extractAttachments(req)
 
 		inReplyTo := ""
 		references := ""
@@ -272,10 +319,10 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 
 		msgID, rawMIME, sendErr := r.Send(req.Context(), relay.OutboundMessage{
 			To: to, CC: cc, BCC: bcc, Subject: subject, BodyText: body,
-			InReplyTo: inReplyTo, References: references,
+			InReplyTo: inReplyTo, References: references, Attachments: attachments,
 		})
 		if db != nil {
-			if _, err := store.SaveOutbound(req.Context(), db, r.From(), to, subject, body, msgID, replyToID, rawMIME, sendErr); err != nil {
+			if _, err := store.SaveOutbound(req.Context(), db, r.From(), strings.Join(to, ", "), subject, body, msgID, replyToID, rawMIME, sendErr); err != nil {
 				slog.Error("save outbound", "component", "ui", "err", err)
 			}
 		}
@@ -284,7 +331,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 			execute(w, "send_error", sendErrorData{Msg: sendErr.Error()})
 			return
 		}
-		execute(w, "send_success", sendSuccessData{To: to, Subject: subject})
+		execute(w, "send_success", sendSuccessData{To: strings.Join(to, ", "), Subject: subject})
 	})
 
 	mux.HandleFunc("/ui/sent", func(w http.ResponseWriter, req *http.Request) {
@@ -627,6 +674,59 @@ func sanitizeFilename(name string) string {
 		}
 		return r
 	}, name)
+}
+
+// extractAttachments reads uploaded files from a parsed multipart form.
+func extractAttachments(req *http.Request) []relay.Attachment {
+	if req.MultipartForm == nil {
+		return nil
+	}
+	var attachments []relay.Attachment
+	for _, fh := range req.MultipartForm.File["attachments"] {
+		f, err := fh.Open()
+		if err != nil {
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(f, 25<<20))
+		f.Close()
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		ct := fh.Header.Get("Content-Type")
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		attachments = append(attachments, relay.Attachment{
+			Filename:    fh.Filename,
+			ContentType: ct,
+			Data:        data,
+		})
+	}
+	return attachments
+}
+
+// buildReplyAllCC returns a comma-separated CC string for reply-all:
+// the original To + Cc recipients, excluding the relay's own address.
+func buildReplyAllCC(detail *store.MessageDetail, r *relay.Relay) string {
+	ownAddr := ""
+	if r != nil {
+		ownAddr = strings.ToLower(r.From())
+	}
+	candidates := parseAddressList(detail.ToAddr + ", " + detail.CcAddr)
+	kept := make([]string, 0, len(candidates))
+	for _, addr := range candidates {
+		a, err := mail.ParseAddress(addr)
+		if err != nil {
+			if strings.ToLower(strings.TrimSpace(addr)) != ownAddr {
+				kept = append(kept, addr)
+			}
+			continue
+		}
+		if strings.ToLower(a.Address) != ownAddr {
+			kept = append(kept, addr)
+		}
+	}
+	return strings.Join(kept, ", ")
 }
 
 func parseListOpts(r *http.Request) (store.ListMessageOptions, error) {

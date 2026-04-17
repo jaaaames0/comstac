@@ -1,19 +1,35 @@
 {{define "compose"}}
 <div class="form-pane">
-  <div class="form-title">compose</div>
-  <form hx-post="/ui/compose" hx-target="#reading-pane" hx-swap="innerHTML">
+  <div class="form-title">{{if .Title}}{{.Title}}{{else}}compose{{end}}</div>
+  <form hx-post="/ui/compose" hx-target="#reading-pane" hx-swap="innerHTML" hx-encoding="multipart/form-data">
     <div class="form-field">
       <label class="form-label">to</label>
-      <input class="form-input" name="to" type="email" required value="{{.To}}" placeholder="recipient@example.com"/>
+      <input class="form-input" name="to" type="text" required value="{{.To}}" placeholder="recipient@example.com, another@example.com" autocomplete="off"/>
     </div>
-    {{template "cc_bcc" .}}
+    <details class="cc-toggle" style="margin-bottom:12px">
+      <summary>+ cc / bcc</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+        <div class="form-field" style="margin:0">
+          <label class="form-label">cc</label>
+          <input class="form-input" name="cc" type="text" placeholder="addr1@example.com, addr2@example.com"/>
+        </div>
+        <div class="form-field" style="margin:0">
+          <label class="form-label">bcc</label>
+          <input class="form-input" name="bcc" type="text" placeholder="addr1@example.com, addr2@example.com"/>
+        </div>
+      </div>
+    </details>
     <div class="form-field">
       <label class="form-label">subject</label>
       <input class="form-input" name="subject" type="text" value="{{.Subject}}" placeholder="subject"/>
     </div>
     <div class="form-field">
       <label class="form-label">body</label>
-      <textarea class="form-input" name="body" rows="14">{{.Body}}</textarea>
+      <textarea class="form-input" name="body" rows="12">{{.Body}}</textarea>
+    </div>
+    <div class="form-field">
+      <label class="form-label">attachments</label>
+      <input class="form-input form-input--file" name="attachments" type="file" multiple/>
     </div>
     <button class="act-p" type="submit">send</button>
   </form>

@@ -10,13 +10,13 @@ A self-hosted, single-user mail client in a single Go binary. Receives local-dom
 - **Aggregates Gmail (or any IMAP)** via OAuth2, polling on a configurable interval
 - **Unified inbox** — SMTP and IMAP messages appear in one stream, filterable by source
 - **Full-text search** across subject, sender, and body text
-- **Compose and reply** through a configured SMTP smart-host relay
+- **Compose and reply** through a configured SMTP smart-host relay — with reply-all, forward, attachment uploads, and CC/BCC
 - **SPF / DKIM / DMARC** validation on inbound mail with per-message auth badges
 - **Spam auto-flagging** when both SPF and DKIM hard-fail
-- **Web Push notifications** (VAPID) for new mail — works on Android and desktop Chrome
+- **Web Push notifications** (VAPID) for new mail — tapping a notification opens the specific email directly
 - **Attachment download** on demand, streamed directly from the database
-- **CC / BCC** on compose and reply
 - **Snooze, archive, spam-flag** actions with optional IMAP write-back
+- **Keyboard shortcuts** — `j`/`k` navigation, `r` reply, `e` trash, `u` unread, `c` compose, `Escape` back
 - **Mobile layout** — swipe-to-trash, push-pattern navigation, two-row topbar
 - **Automated backup** — SQLite snapshot via `comstac backup`, with optional remote SCP and daily systemd timer
 
@@ -297,7 +297,7 @@ The binary embeds all frontend assets (templates, static files) at build time �
 - Passwords are stored with bcrypt
 - Session cookies are `HttpOnly`, `Secure`, `SameSite=Lax`
 - All state-mutating requests require an HMAC-SHA256 CSRF token derived per session
-- Inbound HTML email renders in a fully sandboxed `<iframe sandbox="">` — no scripts, no same-origin access
+- Inbound HTML email renders in a sandboxed `<iframe>` — scripts, forms, and same-origin access blocked; only `allow-popups` and `allow-popups-to-escape-sandbox` are permitted so links open in a new tab
 - SPF/DKIM/DMARC results are persisted and displayed as auth badges per message
 - Security response headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`) are set on all responses
 - nginx rate-limiting on `/login` is recommended in production

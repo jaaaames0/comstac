@@ -12,10 +12,10 @@
   {{if .Auth}}
   <div class="auth-row">
     {{if .Auth.SPF}}
-    <span class="auth-badge auth-{{authClass .Auth.SPF}}">spf:{{.Auth.SPF}}{{if .Auth.SPFDomain}} ({{.Auth.SPFDomain}}){{end}}</span>
+    <span class="auth-badge auth-{{authClass .Auth.SPF}}">spf:{{.Auth.SPF}}{{if and .Auth.SPFDomain (ne (authClass .Auth.SPF) "pass")}} ({{.Auth.SPFDomain}}){{end}}</span>
     {{end}}
     {{if .Auth.DKIM}}
-    <span class="auth-badge auth-{{authClass .Auth.DKIM}}">dkim:{{.Auth.DKIM}}{{if .Auth.DKIMDomain}} ({{.Auth.DKIMDomain}}){{end}}</span>
+    <span class="auth-badge auth-{{authClass .Auth.DKIM}}">dkim:{{.Auth.DKIM}}{{if and .Auth.DKIMDomain (ne (authClass .Auth.DKIM) "pass")}} ({{.Auth.DKIMDomain}}){{end}}</span>
     {{end}}
     {{if .Auth.DMARC}}
     <span class="auth-badge auth-{{authClass .Auth.DMARC}}">dmarc:{{.Auth.DMARC}}</span>
@@ -28,15 +28,30 @@
   {{end}}
 
   {{if .SnoozeUntil}}
-  <div class="snooze-banner">⏰ snoozed until {{fmtSnooze .SnoozeUntil}}</div>
+  <div class="snooze-banner">snoozed until {{fmtSnooze .SnoozeUntil}}</div>
   {{end}}
 
   <div class="msg-acts">
-    {{/* Reply — always primary */}}
-    <button class="act-p"
-            hx-get="/ui/reply?id={{.ID}}"
-            hx-target="#reading-pane"
-            hx-swap="innerHTML">↩ reply</button>
+    {{/* Reply dropdown — reply, reply all (conditional), forward */}}
+    <div class="dropdown">
+      <button class="act-p dropdown-btn" type="button">↩ reply ▾</button>
+      <div class="dropdown-menu">
+        <button class="dm-item"
+                hx-get="/ui/reply?id={{.ID}}"
+                hx-target="#reading-pane"
+                hx-swap="innerHTML">reply</button>
+        {{if .HasReplyAll}}
+        <button class="dm-item"
+                hx-get="/ui/reply?id={{.ID}}&all=1"
+                hx-target="#reading-pane"
+                hx-swap="innerHTML">reply all</button>
+        {{end}}
+        <button class="dm-item"
+                hx-get="/ui/forward?id={{.ID}}"
+                hx-target="#reading-pane"
+                hx-swap="innerHTML">forward</button>
+      </div>
+    </div>
 
     {{/* Restore (if trashed) or secondary actions (if in inbox) */}}
     {{if .Archived}}
@@ -44,26 +59,45 @@
     {{else}}
       {{/* Mark Unread — only shown once auto-read has fired */}}
       {{if .Read}}
-        {{actionBtn .ID "read" "0" "mark unread" "act-s"}}
+        {{actionBtn .ID "read" "0" "unread" "act-s"}}
       {{end}}
 
-      {{/* Snooze — show clear if snoozed, else offer snooze */}}
+      {{/* Snooze — dropdown when not snoozed, single unsnooze button when snoozed */}}
       {{if .SnoozeUntil}}
-        {{actionBtn .ID "clear_snooze" "" "clear snooze" "act-s"}}
+        {{actionBtn .ID "clear_snooze" "" "unsnooze" "act-s"}}
       {{else}}
-      <form style="display:inline" hx-post="/ui/message/actions" hx-target="#reading-pane" hx-swap="innerHTML">
-        <input type="hidden" name="id"     value="{{.ID}}"/>
-        <input type="hidden" name="action" value="snooze"/>
-        <input type="hidden" name="hours"  value="24"/>
-        <button class="act-s" type="submit">snooze 24h</button>
-      </form>
+      <div class="dropdown">
+        <button class="act-s dropdown-btn" type="button">snooze ▾</button>
+        <div class="dropdown-menu">
+          <button class="dm-item"
+                  hx-post="/ui/message/actions"
+                  hx-target="#reading-pane"
+                  hx-swap="innerHTML"
+                  hx-vals='{"id":"{{.ID}}","action":"snooze","hours":"1"}'>1h</button>
+          <button class="dm-item"
+                  hx-post="/ui/message/actions"
+                  hx-target="#reading-pane"
+                  hx-swap="innerHTML"
+                  hx-vals='{"id":"{{.ID}}","action":"snooze","hours":"24"}'>24h</button>
+          <button class="dm-item"
+                  hx-post="/ui/message/actions"
+                  hx-target="#reading-pane"
+                  hx-swap="innerHTML"
+                  hx-vals='{"id":"{{.ID}}","action":"snooze","hours":"72"}'>3d</button>
+          <button class="dm-item"
+                  hx-post="/ui/message/actions"
+                  hx-target="#reading-pane"
+                  hx-swap="innerHTML"
+                  hx-vals='{"id":"{{.ID}}","action":"snooze","hours":"168"}'>7d</button>
+        </div>
+      </div>
       {{end}}
 
       {{/* Spam — context aware */}}
       {{if .Spam}}
         {{actionBtn .ID "spam" "0" "not spam" "act-s"}}
       {{else}}
-        {{actionBtn .ID "spam" "1" "mark spam" "act-d"}}
+        {{actionBtn .ID "spam" "1" "spam" "act-d"}}
       {{end}}
 
       {{/* Trash — rightmost, danger colour */}}
@@ -85,7 +119,7 @@
 
 <div class="msg-body{{if .BodyHTML}} msg-body--html{{end}}">
   {{if .BodyHTML}}
-  <iframe class="body-iframe" srcdoc="{{.BodyHTML}}" sandbox="" loading="lazy"></iframe>
+  <iframe class="body-iframe" srcdoc="{{.BodyHTML}}" sandbox="allow-popups allow-popups-to-escape-sandbox" loading="lazy"></iframe>
   {{else}}
   <pre class="body-text">{{.BodyText}}</pre>
   {{end}}

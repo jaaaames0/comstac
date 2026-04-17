@@ -120,6 +120,9 @@ func refreshAccessToken(ctx context.Context, clientID, clientSecret, refreshToke
 	if tr.Error != "" {
 		return "", time.Time{}, fmt.Errorf("token error %s: %s", tr.Error, tr.ErrorDesc)
 	}
+	if tr.AccessToken == "" {
+		return "", time.Time{}, fmt.Errorf("token refresh returned empty access token")
+	}
 	expiry := time.Now().Add(time.Duration(tr.ExpiresIn) * time.Second)
 	return tr.AccessToken, expiry, nil
 }

@@ -12,16 +12,15 @@ self.addEventListener('push', function(event) {
     badge: '/static/icon-192.png',
     tag: 'comstac-mail',
     renotify: true,
-    data: { url: '/' }
+    data: { messageId: data.message_id || null }
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
-  // Use a cache-busting query param so navigate() triggers an actual reload
-  // even when already at '/'.
-  var target = '/?n=' + Date.now();
+  var messageId = event.notification.data && event.notification.data.messageId;
+  var target = messageId ? '/?msg=' + messageId : '/';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(list) {
       for (var i = 0; i < list.length; i++) {
@@ -30,7 +29,7 @@ self.addEventListener('notificationclick', function(event) {
           return c.focus().then(function() { return c.navigate(target); });
         }
       }
-      return clients.openWindow('/');
+      return clients.openWindow(target);
     })
   );
 });

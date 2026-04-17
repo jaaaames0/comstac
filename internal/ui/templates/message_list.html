@@ -9,7 +9,7 @@
        hx-target="#reading-pane"
        hx-swap="innerHTML">
 
-    <div class="msg-row-top">
+    <div class="msg-row-top" title="{{fmtFullDate .SentAt}}">
       <span class="msg-sender">{{fmtSender .FromAddr}}</span>
       <div class="msg-row-meta">
         {{if $.ShowSource}}<span class="badge badge-src">{{.Source}}</span>{{end}}

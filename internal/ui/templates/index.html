@@ -454,6 +454,37 @@
     }
     .act-d:hover { color: var(--danger); border-color: rgba(248,81,73,.3); }
 
+    /* ── Dropdowns ──────────────────────────────────────────────── */
+    .dropdown { position: relative; display: inline-flex; }
+    .dropdown-menu {
+      display: none;
+      position: fixed; /* fixed escapes overflow:auto parents (e.g. .msg-acts on mobile) */
+      z-index: 30;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      min-width: 110px;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    }
+    .dropdown.open .dropdown-menu { display: flex; }
+    .dm-item {
+      padding: 7px 12px;
+      background: none;
+      border: none;
+      border-bottom: 1px solid var(--border-sub);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+      transition: color .1s, background .1s;
+      white-space: nowrap;
+    }
+    .dm-item:last-child { border-bottom: none; }
+    .dm-item:hover { color: var(--text); background: var(--surface-3); }
+
     /* trash button — red accent, rightmost */
     .act-trash {
       padding: 5px 10px;
@@ -573,6 +604,21 @@
     .form-input:focus { border-color: var(--accent-ring); }
     .form-input::placeholder { color: var(--dim); }
 
+    .form-input--file { cursor: pointer; padding: 4px 8px; }
+    .form-input--file::file-selector-button {
+      background: var(--surface-3);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 3px;
+      cursor: pointer;
+      margin-right: 8px;
+      transition: color .12s, border-color .12s;
+    }
+    .form-input--file::file-selector-button:hover { color: var(--text); border-color: var(--dim); }
+
     textarea.form-input {
       resize: vertical;
       line-height: 1.55;
@@ -688,6 +734,7 @@
         white-space: nowrap;
         flex-shrink: 0;
       }
+      .dropdown { flex-shrink: 0; }
 
       /* ── Back button replaces brand name when detail is open ────── */
       .brand-name { display: flex; align-items: center; }
@@ -773,9 +820,10 @@
 
   <script>
     (function() {
-      // Clean up the ?n= cache-busting param added by the service worker
-      // after a push notification click, so the URL doesn'tpersist ugliness.
-      if (location.search.indexOf('n=') !== -1) {
+      // Detect ?msg= param set by the service worker when a notification is clicked.
+      // Extract and clean it up immediately so the URL stays tidy.
+      var notifMsgId = (location.search.match(/[?&]msg=(\d+)/) || [])[1] || null;
+      if (notifMsgId) {
         history.replaceState(null, '', location.pathname);
       }
 
@@ -788,6 +836,23 @@
       var activeFilter = 'inbox';    // inbox | trash | spam
       var activeStream = 'all';      // all | smtp | imap
       var activePage   = 'messages'; // messages | sent
+
+      // If the page was opened via a notification click, open the linked message.
+      if (notifMsgId) {
+        activeMessageId = notifMsgId;
+        // Load the detail and mark as read in one request, mirroring the normal row-click path.
+        htmx.ajax('POST', '/ui/message/actions', {
+          target: '#reading-pane', swap: 'innerHTML',
+          values: {id: notifMsgId, action: 'read', value: '1'}
+        });
+        // Once the initial message list finishes loading, highlight the row.
+        var msgListEl = document.getElementById('message-list');
+        msgListEl.addEventListener('htmx:afterSwap', function onListLoad() {
+          msgListEl.removeEventListener('htmx:afterSwap', onListLoad);
+          var row = document.getElementById('row-' + notifMsgId);
+          if (row) row.classList.add('selected');
+        });
+      }
 
       function filterParams() {
         var p = 'limit=50';
@@ -901,10 +966,13 @@
           activeMessageId = null;
         } else {
           openDetail();
+          pane.scrollTop = 0;
           var wrap = this.querySelector('.msg-detail-wrap');
           if (!wrap) {
-            // Non-message content (compose, accounts)
+            // Non-message content (compose, reply, accounts) — focus first textarea
             activeMessageId = null;
+            var ta = this.querySelector('textarea');
+            if (ta) { setTimeout(function() { ta.focus(); ta.setSelectionRange(0, 0); }, 50); }
           } else {
             // Sync the list row's unread indicator with the detail's read state
             var msgId = wrap.dataset.id;
@@ -985,6 +1053,98 @@
         // Snap back
         row.style.transform = '';
         row.style.opacity = '';
+      });
+
+      // ── Dropdowns ─────────────────────────────────────────────────
+      // Menus use position:fixed to escape overflow:auto parents.
+      // However, any ancestor with a CSS transform becomes the containing
+      // block for fixed elements (CSS spec), so viewport coords from
+      // getBoundingClientRect() must be adjusted by that ancestor's offset.
+      function transformAncestorOffset(el) {
+        var node = el.parentElement;
+        while (node && node !== document.body) {
+          if (window.getComputedStyle(node).transform !== 'none') {
+            var r = node.getBoundingClientRect();
+            return { top: r.top, left: r.left };
+          }
+          node = node.parentElement;
+        }
+        return { top: 0, left: 0 };
+      }
+      function closeAllDropdowns() {
+        document.querySelectorAll('.dropdown.open').forEach(function(d) { d.classList.remove('open'); });
+      }
+      document.addEventListener('click', function(e) {
+        var trigger = e.target.closest('.dropdown-btn');
+        if (trigger) {
+          e.stopPropagation();
+          var dd = trigger.closest('.dropdown');
+          var wasOpen = dd.classList.contains('open');
+          closeAllDropdowns();
+          if (!wasOpen) {
+            var menu = dd.querySelector('.dropdown-menu');
+            var rect = trigger.getBoundingClientRect();
+            var off  = transformAncestorOffset(trigger);
+            menu.style.top  = (rect.bottom - off.top  + 4) + 'px';
+            menu.style.left = (rect.left   - off.left)     + 'px';
+            dd.classList.add('open');
+          }
+          return;
+        }
+        closeAllDropdowns();
+      });
+
+      // ── Keyboard shortcuts ────────────────────────────────────────
+      // Not active when focus is inside a text field.
+      document.addEventListener('keydown', function(e) {
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        var tag = document.activeElement ? document.activeElement.tagName : '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (document.activeElement && document.activeElement.isContentEditable) return;
+
+        var rows, idx, next, btn;
+        switch (e.key) {
+          case 'j': // next message
+          case 'k': // prev message
+            rows = Array.from(document.querySelectorAll('.msg-row'));
+            if (!rows.length) return;
+            idx = rows.findIndex(function(r) { return r.classList.contains('selected'); });
+            next = e.key === 'j'
+              ? (idx < rows.length - 1 ? rows[idx + 1] : null)
+              : (idx > 0               ? rows[idx - 1] : null);
+            if (next) next.click();
+            e.preventDefault();
+            break;
+          case 'r': // reply
+            btn = Array.from(pane.querySelectorAll('.dm-item')).find(function(b) {
+              return b.textContent.trim() === 'reply';
+            });
+            if (btn) btn.click();
+            e.preventDefault();
+            break;
+          case 'e': // trash
+            btn = pane.querySelector('.act-trash');
+            if (btn) btn.click();
+            e.preventDefault();
+            break;
+          case 'u': // mark unread
+            btn = Array.from(pane.querySelectorAll('button')).find(function(b) {
+              return b.textContent.trim() === 'unread';
+            });
+            if (btn) btn.click();
+            e.preventDefault();
+            break;
+          case 'c': // compose
+            htmx.ajax('GET', '/ui/compose', {target: '#reading-pane', swap: 'innerHTML'});
+            e.preventDefault();
+            break;
+          case 'Escape': // close detail
+            if (document.body.classList.contains('detail-open')) {
+              document.getElementById('back-btn').click();
+              e.preventDefault();
+            }
+            break;
+        }
       });
     })();
   </script>

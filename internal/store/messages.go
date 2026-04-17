@@ -45,6 +45,7 @@ type MessageDetail struct {
 	Subject     string           `json:"subject"`
 	FromAddr    string           `json:"from_addr"`
 	ToAddr      string           `json:"to_addr"`
+	CcAddr      string           `json:"cc_addr,omitempty"`
 	DateHdr     string           `json:"date"`
 	SentAt      string           `json:"sent_at"` // COALESCE(sent_at, created_at) — for display in detail pane
 	CreatedAt   string           `json:"created_at"`
@@ -224,6 +225,9 @@ func GetMessageDetail(ctx context.Context, db *sql.DB, id int64) (*MessageDetail
 	d.Archived = archivedInt != 0
 	d.Spam = spamInt != 0
 	d.Attachments = ExtractAttachments(rawMIME)
+	if msg, err := mail.ReadMessage(bytes.NewReader(rawMIME)); err == nil {
+		d.CcAddr = msg.Header.Get("Cc")
+	}
 	return &d, nil
 }
 

@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 This project adheres to Semantic Versioning.
 
 ## [Unreleased]
+
+## [0.9.3] - 2026-04-17
 ### Security
 - **`.gitignore` hardened**: replaced stale `sovereign.*` entries with full coverage — `*.env`, `client_secret_*.json`, `*.db*`, `cookies.txt`, compiled binaries, systemd unit files, `AGENDA.md`. No secrets or email data can be accidentally committed.
 - **`COMSTAC_CSRF_SECRET`** added to production env file; app no longer falls back to hardcoded default key.
@@ -14,6 +16,31 @@ This project adheres to Semantic Versioning.
 - **Attachment Content-Type clamped** (`handler.go`): `/ui/attachment` now passes the MIME part's Content-Type through a known-safe allow-list, falling back to `application/octet-stream`. Prevents a malicious email from causing the browser to treat a downloaded attachment as HTML.
 - **Attachment filename sanitized** (`handler.go`): `sanitizeFilename` strips `"`, `\`, CRLF, and control characters from the `Content-Disposition` filename parameter.
 - **SMTP connection timeouts** (`smtpserver`): `ReadTimeout` and `WriteTimeout` set to 5 minutes (was 0 — no timeout). Limits connection exhaustion from slow or hanging senders.
+
+### Added
+- **Attachment support in compose and reply**: file picker accepts multiple files; handler parses `multipart/form-data` and attaches each file as a base64-encoded MIME part. `relay.OutboundMessage` carries `[]Attachment`; `buildRawMIME` branches on `multipart/mixed` vs plain `text/plain`.
+- **Reply-all**: `GET /ui/reply?id=X&all=1` pre-fills CC from the original message's `Cc:` and additional `To:` addresses. Shown conditionally in the reply dropdown when there are other recipients.
+- **Forward**: `GET /ui/forward?id=X` opens compose pre-filled with `Fwd:` subject and quoted body. `relay.ForwardSubject()` helper applies the prefix idempotently.
+- **Reply / reply-all / forward dropdown**: three actions consolidated into a single dropdown in the message detail action bar, replacing three separate buttons.
+- **Snooze dropdown**: 1h / 24h / 3d / 7d options in a dropdown menu; "unsnooze" single-button shown when already snoozed.
+- **Keyboard shortcuts**: `j`/`k` next/prev message, `r` reply, `e` trash, `u` mark unread, `c` compose, `Escape` close detail. Not active when focus is inside a text field.
+- **Reading pane scroll-to-top**: pane resets scroll position on every content change (message switch, compose, accounts).
+- **Auto-focus compose/reply body**: first `<textarea>` in the reading pane is focused automatically after load, putting the cursor at position 0.
+- **Hover timestamps**: list row timestamps show the full `Mon, 2 Jan 2006 15:04:05` date as a native `title` tooltip.
+- **Targeted push notification opens**: clicking a push notification now POSTs `action=read` for the specific message ID (marks read + loads detail), rather than just reloading the home page.
+
+### Fixed
+- **IMAP OAuth empty access token**: `refreshAccessToken` now returns an error if the token endpoint responds with an empty `access_token`, preventing silent IMAP auth failures.
+- **Links in HTML emails open in new tab**: `<base target="_blank">` injected into iframe HTML body; sandbox updated to `allow-popups allow-popups-to-escape-sandbox`. Previously `sandbox=""` blocked all navigation silently.
+- **Mobile dropdown visibility**: `.dropdown-menu` switched from `position: absolute` to `position: fixed` to escape the `overflow-x: auto` container (CSS forces `overflow-y: auto` too, clipping absolutely-positioned children).
+- **Mobile dropdown position offset**: `transformAncestorOffset()` walks the DOM for a CSS transform ancestor (`.reader-col` has `translateX(0)` on mobile) and subtracts its viewport offset from `getBoundingClientRect()` coords, correcting ~50px vertical drift.
+
+### Changed
+- **`relay.OutboundMessage.To`** changed from `string` to `[]string` to support multi-recipient compose.
+- **`store.MessageDetail.CcAddr`** added; populated from the `Cc:` header of the raw MIME during `GetMessageDetail`.
+- **`ingest.MailNotifier.SendNewMail`** signature extended with `messageID int64` for targeted notification payloads.
+- **CC/BCC inlined**: dedicated `cc_bcc.html` partial template removed; fields are now a `<details>` toggle directly inside `compose.html` and `reply.html`.
+- **`parseTimestamp` helper** extracted from duplicated parsing loops in `fmtTime` and `fmtFullDate`.
 
 ## [0.9.2] - 2026-04-13 (production-validated)
 ### Added

@@ -87,13 +87,14 @@ func validateVAPIDKeyPair(vapidPublic, vapidPrivate string) error {
 }
 
 type payload struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	MessageID int64  `json:"message_id,omitempty"`
 }
 
 // SendNewMail dispatches a "new mail" push notification to all subscriptions.
 // Delivery errors per-subscription are logged but do not fail the call.
-func (n *Notifier) SendNewMail(ctx context.Context, subject, from string) {
+func (n *Notifier) SendNewMail(ctx context.Context, subject, from string, messageID int64) {
 	subs, err := store.ListPushSubscriptions(ctx, n.db)
 	if err != nil {
 		slog.Error("push: list subscriptions", "err", err)
@@ -107,7 +108,7 @@ func (n *Notifier) SendNewMail(ctx context.Context, subject, from string) {
 	if from != "" {
 		body = fmt.Sprintf("%s — %s", from, subject)
 	}
-	p := payload{Title: "comstac", Body: body}
+	p := payload{Title: "comstac", Body: body, MessageID: messageID}
 	msg, _ := json.Marshal(p)
 
 	opts := &webpush.Options{

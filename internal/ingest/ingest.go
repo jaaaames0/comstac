@@ -47,7 +47,7 @@ type IngestInput struct {
 
 // MailNotifier is an optional hook called after a message is successfully persisted.
 type MailNotifier interface {
-	SendNewMail(ctx context.Context, subject, from string)
+	SendNewMail(ctx context.Context, subject, from string, messageID int64)
 }
 
 type Service struct {
@@ -132,13 +132,20 @@ func (s *Service) IngestRaw(ctx context.Context, in IngestInput) error {
 		return err
 	}
 
-	if _, err := tx.ExecContext(ctx, `
+	msgRes, err := tx.ExecContext(ctx, `
 		INSERT INTO messages (
 			raw_id, account_id, thread_id, message_id, subject, from_addr, to_addr, date_hdr, sent_at, body_text, auth_results, spam
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, rawID, nullableID(in.AccountID), threadID, msgID, subject, fromAddr, toAddr, dateHdr, nullableStr(sentAt), bodyText, authJSON, autoSpam); err != nil {
+	`, rawID, nullableID(in.AccountID), threadID, msgID, subject, fromAddr, toAddr, dateHdr, nullableStr(sentAt), bodyText, authJSON, autoSpam)
+	if err != nil {
 		tx.Rollback()
 		return fmt.Errorf("insert message: %w", err)
+	}
+
+	messageID, err := msgRes.LastInsertId()
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("message id: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -146,7 +153,7 @@ func (s *Service) IngestRaw(ctx context.Context, in IngestInput) error {
 	}
 
 	if s.notifier != nil {
-		go s.notifier.SendNewMail(context.Background(), subject, fromAddr)
+		go s.notifier.SendNewMail(context.Background(), subject, fromAddr, messageID)
 	}
 
 	return nil
