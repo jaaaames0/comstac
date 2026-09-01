@@ -25,7 +25,7 @@ func TestHealthz(t *testing.T) {
 
 	db := openTestDB(t)
 	authMgr := bootstrapAuth(t, db)
-	srv := api.New(":0", db, authMgr, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil, nil)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 
@@ -49,7 +49,7 @@ func TestProtectedAPIRequiresLogin(t *testing.T) {
 
 	db := openTestDB(t)
 	authMgr := bootstrapAuth(t, db)
-	srv := api.New(":0", db, authMgr, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil, nil)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 
@@ -71,7 +71,7 @@ func TestListMessagesFiltersPaginationAndDetail(t *testing.T) {
 	seedMessages(t, db)
 	authMgr := bootstrapAuth(t, db)
 
-	srv := api.New(":0", db, authMgr, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil, nil)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 
@@ -194,7 +194,7 @@ func TestAccountsListAndCreateLocal(t *testing.T) {
 
 	db := openTestDB(t)
 	authMgr := bootstrapAuth(t, db)
-	srv := api.New(":0", db, authMgr, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil, nil)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 
@@ -393,7 +393,19 @@ func postJSON(t *testing.T, client *http.Client, url string, body string) {
 
 func postJSONExpect(t *testing.T, client *http.Client, url string, body string, status int) {
 	t.Helper()
-	resp, err := client.Post(url, "application/json", bytes.NewBufferString(body))
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(body))
+	if err != nil {
+		t.Fatalf("create post %s: %v", url, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for _, cookie := range client.Jar.Cookies(req.URL) {
+		if cookie.Name == "comstac_session" {
+			mgr := authpkg.NewManager(nil, "", time.Hour, "")
+			req.Header.Set("X-CSRF-Token", mgr.CSRFToken(cookie.Value))
+			break
+		}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("post %s: %v", url, err)
 	}

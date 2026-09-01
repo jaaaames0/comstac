@@ -13,6 +13,7 @@ A self-hosted, single-user mail client in a single Go binary. Receives local-dom
 - **Compose and reply** through a configured SMTP smart-host relay — with reply-all, forward, attachment uploads, and CC/BCC
 - **SPF / DKIM / DMARC** validation on inbound mail with per-message auth badges
 - **Spam auto-flagging** when both SPF and DKIM hard-fail
+- **Agent real-time alerts** (SSE) — OpenClaw agent connects via HTTPS to receive instant `new_mail` events when messages arrive; no polling, no SSH tunnel
 - **Web Push notifications** (VAPID) for new mail — tapping a notification opens the specific email directly
 - **Attachment download** on demand, streamed directly from the database
 - **Snooze, archive, spam-flag** actions with optional IMAP write-back
@@ -239,6 +240,8 @@ All configuration is via environment variables. Copy `.env.example` as a startin
 | `COMSTAC_IMAP_CLIENT_ID` | — | OAuth2 client ID (Desktop app credential) |
 | `COMSTAC_IMAP_CLIENT_SECRET` | — | OAuth2 client secret |
 | `COMSTAC_IMAP_REFRESH_TOKEN` | — | Refresh token from `comstac authorize` |
+
+| `COMSTAC_AGENT_TOKEN` | — | Strong token for agent SSE auth (`openssl rand -hex 32`). Enables `GET /api/push/sse` for OpenClaw agent integration |
 
 ### Web Push (optional)
 

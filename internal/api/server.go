@@ -15,23 +15,25 @@ import (
 	"time"
 
 	authpkg "comstac/internal/auth"
+	"comstac/internal/push"
 	"comstac/internal/relay"
 	"comstac/internal/store"
 	"comstac/internal/ui"
 )
 
 type Server struct {
-	addr      string
-	db        *sql.DB
-	auth      *authpkg.Manager
-	relay     *relay.Relay
-	oauth     *ui.OAuthConfig
-	startedAt time.Time
-	reqCount  atomic.Int64
+	addr         string
+	db           *sql.DB
+	auth         *authpkg.Manager
+	relay        *relay.Relay
+	oauth        *ui.OAuthConfig
+	agentClients *push.AgentClients
+	startedAt    time.Time
+	reqCount     atomic.Int64
 }
 
-func New(addr string, db *sql.DB, auth *authpkg.Manager, r *relay.Relay, oauth *ui.OAuthConfig) *Server {
-	return &Server{addr: addr, db: db, auth: auth, relay: r, oauth: oauth, startedAt: time.Now()}
+func New(addr string, db *sql.DB, auth *authpkg.Manager, r *relay.Relay, oauth *ui.OAuthConfig, ac *push.AgentClients) *Server {
+	return &Server{addr: addr, db: db, auth: auth, relay: r, oauth: oauth, agentClients: ac, startedAt: time.Now()}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -93,6 +95,10 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "max-age=86400")
 		_, _ = w.Write(data)
 	})
+
+	if s.agentClients != nil {
+		publicMux.Handle("/api/push/sse", s.agentClients)
+	}
 
 	protectedMux := http.NewServeMux()
 	ui.RegisterRoutes(protectedMux, s.db, s.relay, s.oauth)

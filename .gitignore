@@ -11,7 +11,7 @@ cookies.txt
 *.db-wal
 
 # ── Build outputs ─────────────────────────────────────────────────────────────
-comstac
+/comstac
 sovereign
 *.test
 *.out
@@ -24,6 +24,8 @@ sovereign
 AGENDA.md
 CLAUDE.md
 DEV_COMPANION.md
+COMPANION.md
+STATE.md
 SYSTEM.md
 SPECS.md
 .codex

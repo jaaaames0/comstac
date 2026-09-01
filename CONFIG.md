@@ -79,6 +79,9 @@ sudo systemctl start comstac
 - `COMSTAC_LOCAL_RECIPIENTS` (default empty): comma-separated accepted full recipient addresses.
   - Example: `local@example.com,alerts@example.com`
 
+## Agent Integration (ghost-mail SSE)
+- `COMSTAC_AGENT_TOKEN`: Strong token for authenticating the OpenClaw agent to `GET /api/push/sse`. Generate with `openssl rand -hex 32`. If unset, the SSE endpoint is not registered (silently skipped). Token is sent as the `X-Agent-Token` header by `ghost-sse-client.py`.
+
 ## Notes
 - `COMSTAC_LOCAL_RECIPIENTS` also bootstraps local accounts used for recipient routing.
 - Values are normalized to lowercase where relevant.

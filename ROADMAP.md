@@ -153,6 +153,26 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 ## Exit Criteria
 - UI feels polished and intentional on both desktop and mobile; push notifications work on Android and desktop. ✓ (iOS PWA push requires Safari 16.4+ — not validated but architecture supports it)
 
+## Phase 9: UI + Aesthetics + Mobile (`0.9.x`)
+## Objectives
+- Make the interface genuinely pleasant to use daily, including on mobile.
+
+## Milestones
+1. Visual overhaul: typography, spacing, colour, panel proportions. ✓ (`0.9.0`)
+2. Dark design system with jade-green accent, command/filter bar, 2-pane workspace. ✓ (`0.9.0`)
+3. Independent filter × stream selection; selected-row highlight; smart reading-pane clearing. ✓ (`0.9.0`)
+4. Gmail-style expanding timestamps in local timezone. ✓ (`0.9.0`)
+5. **Mobile layout**: push pattern — single-column on portrait, list slides out and detail slides in on tap; back button returns to list. ✓ (`0.9.1`)
+6. **Mobile topbar**: two-row topbar (brand + filter nav); search and compose stay visible; back button shares brand area. ✓ (`0.9.1`)
+7. **Swipe to trash/restore on mobile**: swipe gesture on list rows replaces invisible hover button. ✓ (`0.9.1`)
+8. **Web-based Gmail re-authorization**: `/ui/oauth/start` + `/ui/oauth/callback` with IMAP auth failure detection and in-app notification. ✓ (`0.9.1`)
+9. **Push notifications**: Web Push (VAPID) via service worker — subscribe on mobile, trigger on inbound SMTP/IMAP ingest. ✓ (`0.9.2`, production-validated on Android + desktop Chrome)
+10. CC/BCC fields styled properly in the new design (currently plain `<details>` toggle). (low priority — may ship as-is)
+11. Inline CID image support in HTML emails (replace `cid:` refs with base64 data URIs). (low priority)
+
+## Exit Criteria
+- UI feels polished and intentional on both desktop and mobile; push notifications work on Android and desktop. ✓ (iOS PWA push requires Safari 16.4+ — not validated but architecture supports it)
+
 ## Phase 10: v1.0.0
 ## Objectives
 - Production-grade single-user release. Exit criterion: comstac is the primary daily driver for all inbound and outbound mail.
@@ -161,8 +181,9 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 1. Soak period — daily driver use surfaces any remaining functional bugs.
 2. Full documentation pass (CONFIG.md, SYSTEM.md, SPECS.md accuracy).
 3. Security review checklist (OWASP top 10, session hygiene, CSRF coverage, header hardening).
-4. Upgrade/migration validation from clean install.
-5. Tagged `1.0.0` release and changelog freeze.
+4. **Agent integration (ghost-mail)**: SSE endpoint for OpenClaw agent — `GET /api/push/sse` with `X-Agent-Token` auth, fires `new_mail` events on ingest. ghost-sse-client.py completes the integration. (in progress — endpoint implemented 2026-04-30)
+5. Upgrade/migration validation from clean install.
+6. Tagged `1.0.0` release and changelog freeze.
 
 ## Exit Criteria
 - Comstac is the primary mail client for daily use with no known functional regressions.

@@ -48,6 +48,9 @@ type Config struct {
 	VAPIDPrivateKey string
 	VAPIDSubject    string // e.g. "mailto:you@example.com"
 
+	// Agent SSE (ghost-mail integration)
+	AgentToken string
+
 	// Backup
 	BackupDir    string
 	BackupDest   string // remote SCP destination, e.g. user@host:/path/to/backups/
@@ -116,6 +119,8 @@ func FromEnv() Config {
 		BackupDest:   envOr("COMSTAC_BACKUP_DEST", ""),
 		BackupKey:    envOr("COMSTAC_BACKUP_KEY", ""),
 		BackupRetain: parseIntOr(envOr("COMSTAC_BACKUP_RETAIN", ""), 7),
+
+		AgentToken: envOr("COMSTAC_AGENT_TOKEN", ""),
 	}
 }
 

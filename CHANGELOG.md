@@ -6,6 +6,9 @@ This project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- **Agent SSE integration**: `GET /api/push/sse` — public SSE endpoint for OpenClaw agent (ghost-mail). Auth via `X-Agent-Token` header. Fires `event: new_mail\ndata: {"id", "from", "subject"}` on each new message, plus `event: ping\ndata: {}` every 30s. Multiple simultaneous agent connections supported. Configured via `COMSTAC_AGENT_TOKEN`.
+
 ## [0.9.3] - 2026-04-17
 ### Security
 - **`.gitignore` hardened**: replaced stale `sovereign.*` entries with full coverage — `*.env`, `client_secret_*.json`, `*.db*`, `cookies.txt`, compiled binaries, systemd unit files, `AGENDA.md`. No secrets or email data can be accidentally committed.
