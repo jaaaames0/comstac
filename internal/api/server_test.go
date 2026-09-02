@@ -17,6 +17,7 @@ import (
 	"comstac/internal/api"
 	authpkg "comstac/internal/auth"
 	"comstac/internal/ingest"
+	"comstac/internal/storageguard"
 	"comstac/internal/store"
 )
 
@@ -41,6 +42,75 @@ func TestHealthz(t *testing.T) {
 	}
 	if string(body) != "{\"ok\":true}" {
 		t.Fatalf("unexpected body: %q", string(body))
+	}
+}
+
+func TestHealthzReportsStorageWarning(t *testing.T) {
+	db := openTestDB(t)
+	authMgr := bootstrapAuth(t, db)
+	guard, err := storageguard.New(t.TempDir(), storageguard.Limits{
+		MaxStateBytes: 1 << 62, MinFreeBytes: 1, WarnFreeBytes: 1 << 62,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	srv.SetStorageGuard(guard)
+	baseURL, stop := runAPIServer(t, srv)
+	defer stop()
+
+	resp, err := http.Get(baseURL + "/healthz")
+	if err != nil {
+		t.Fatalf("get healthz: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, string(body))
+	}
+	if string(body) != `{"ok":false,"storage":"warning"}` {
+		t.Fatalf("unexpected body: %q", string(body))
+	}
+}
+
+func TestMetricsIncludesStorageCapacity(t *testing.T) {
+	db := openTestDB(t)
+	authMgr := bootstrapAuth(t, db)
+	guard, err := storageguard.New(t.TempDir(), storageguard.Limits{
+		MaxStateBytes: 1 << 62, MinFreeBytes: 1, WarnFreeBytes: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	srv.SetStorageGuard(guard)
+	baseURL, stop := runAPIServer(t, srv)
+	defer stop()
+
+	client := authedClient(t, baseURL)
+	resp, err := client.Get(baseURL + "/metrics")
+	if err != nil {
+		t.Fatalf("get metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%s", resp.StatusCode, string(body))
+	}
+	var metrics struct {
+		StorageMaxBytes      int64 `json:"storage_max_bytes"`
+		StorageMinFreeBytes  int64 `json:"storage_min_free_bytes"`
+		StorageWarnFreeBytes int64 `json:"storage_warn_free_bytes"`
+		StorageRejections    int64 `json:"storage_rejections_total"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&metrics); err != nil {
+		t.Fatal(err)
+	}
+	if metrics.StorageMaxBytes != 1<<62 || metrics.StorageMinFreeBytes != 1 || metrics.StorageWarnFreeBytes != 2 {
+		t.Fatalf("unexpected storage metrics: %+v", metrics)
+	}
+	if metrics.StorageRejections != 0 {
+		t.Fatalf("storage rejections = %d, want 0", metrics.StorageRejections)
 	}
 }
 

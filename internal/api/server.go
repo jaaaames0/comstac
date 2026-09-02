@@ -17,6 +17,7 @@ import (
 	authpkg "comstac/internal/auth"
 	"comstac/internal/push"
 	"comstac/internal/relay"
+	"comstac/internal/storageguard"
 	"comstac/internal/store"
 	"comstac/internal/ui"
 )
@@ -31,6 +32,12 @@ type Server struct {
 	startedAt    time.Time
 	reqCount     atomic.Int64
 	loginLimiter *loginLimiter
+	storage      *storageguard.Guard
+}
+
+// SetStorageGuard exposes storage warning state to health and metrics.
+func (s *Server) SetStorageGuard(g *storageguard.Guard) {
+	s.storage = g
 }
 
 const (
@@ -54,6 +61,19 @@ func (s *Server) Handler() http.Handler {
 	publicMux := http.NewServeMux()
 	publicMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if s.storage != nil {
+			snapshot, err := s.storage.Snapshot()
+			if err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"ok":false,"storage":"unavailable"}`))
+				return
+			}
+			if snapshot.Warning {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"ok":false,"storage":"warning"}`))
+				return
+			}
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
@@ -269,12 +289,20 @@ func handleUnauthorized(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	type metrics struct {
-		UptimeSeconds  int64 `json:"uptime_seconds"`
-		RequestsTotal  int64 `json:"requests_total"`
-		MessagesTotal  int64 `json:"messages_total"`
-		MessagesUnread int64 `json:"messages_unread"`
-		SyncPending    int64 `json:"sync_jobs_pending"`
-		SyncFailed     int64 `json:"sync_jobs_failed"`
+		UptimeSeconds         int64 `json:"uptime_seconds"`
+		RequestsTotal         int64 `json:"requests_total"`
+		MessagesTotal         int64 `json:"messages_total"`
+		MessagesUnread        int64 `json:"messages_unread"`
+		SyncPending           int64 `json:"sync_jobs_pending"`
+		SyncFailed            int64 `json:"sync_jobs_failed"`
+		StorageStateBytes     int64 `json:"storage_state_bytes"`
+		StorageAvailableBytes int64 `json:"storage_available_bytes"`
+		StorageMaxBytes       int64 `json:"storage_max_bytes"`
+		StorageMinFreeBytes   int64 `json:"storage_min_free_bytes"`
+		StorageWarnFreeBytes  int64 `json:"storage_warn_free_bytes"`
+		StorageWarning        bool  `json:"storage_warning"`
+		StorageRejecting      bool  `json:"storage_rejecting"`
+		StorageRejections     int64 `json:"storage_rejections_total"`
 	}
 	m := metrics{
 		UptimeSeconds: int64(time.Since(s.startedAt).Seconds()),
@@ -285,6 +313,18 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM messages WHERE read = 0`).Scan(&m.MessagesUnread)
 		_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM sync_jobs WHERE status IN ('pending','retrying')`).Scan(&m.SyncPending)
 		_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM sync_jobs WHERE status = 'failed'`).Scan(&m.SyncFailed)
+	}
+	if s.storage != nil {
+		if snapshot, err := s.storage.Snapshot(); err == nil {
+			m.StorageStateBytes = snapshot.StateBytes
+			m.StorageAvailableBytes = snapshot.AvailableBytes
+			m.StorageMaxBytes = snapshot.MaxStateBytes
+			m.StorageMinFreeBytes = snapshot.MinFreeBytes
+			m.StorageWarnFreeBytes = snapshot.WarnFreeBytes
+			m.StorageWarning = snapshot.Warning
+			m.StorageRejecting = snapshot.Rejecting
+			m.StorageRejections = snapshot.Rejections
+		}
 	}
 	writeJSON(w, http.StatusOK, m)
 }

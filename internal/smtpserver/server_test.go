@@ -2,6 +2,7 @@ package smtpserver
 
 import (
 	"bufio"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -76,5 +77,23 @@ func TestDataReturnsTemporaryFailureWhenWorkersAreSaturated(t *testing.T) {
 	err := s.Data(strings.NewReader("Subject: test\r\n\r\nbody\r\n"))
 	if err == nil || !strings.Contains(err.Error(), "451") {
 		t.Fatalf("Data() error = %v, want SMTP 451", err)
+	}
+}
+
+func TestDataReturnsTemporaryFailureWhenStorageIsUnavailable(t *testing.T) {
+	s := &session{
+		envelopeTo: []string{"mail@example.com"},
+		dataSlots:  make(chan struct{}, 1),
+		opts: Options{
+			DataTimeout:     time.Second,
+			MaxMessageBytes: 25 << 20,
+			CheckStorage: func(int64) error {
+				return errors.New("unavailable")
+			},
+		},
+	}
+	err := s.Data(strings.NewReader("Subject: test\r\n\r\nbody\r\n"))
+	if err == nil || !strings.Contains(err.Error(), "452") {
+		t.Fatalf("Data() error = %v, want SMTP 452", err)
 	}
 }

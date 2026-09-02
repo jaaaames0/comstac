@@ -78,6 +78,9 @@ COMSTAC_LOCAL_RECIPIENTS=you@example.com
 COMSTAC_ADMIN_USERNAME=you
 COMSTAC_ADMIN_PASSWORD=replace-with-a-long-random-password
 COMSTAC_CSRF_SECRET=$(openssl rand -hex 32)
+COMSTAC_STORAGE_MAX_BYTES=10737418240
+COMSTAC_STORAGE_MIN_FREE_BYTES=53687091200
+COMSTAC_STORAGE_WARN_FREE_BYTES=80530636800
 ```
 
 See [Configuration](#configuration) below for all options.
@@ -220,6 +223,9 @@ unsafe.
 | `COMSTAC_SMTP_DOMAIN` | Required | Explicit non-localhost SMTP banner hostname |
 | `COMSTAC_HTTP_ADDR` | Required | Loopback-only HTTP/UI/API bind address |
 | `COMSTAC_DB_PATH` | Required | Absolute SQLite database path |
+| `COMSTAC_STORAGE_MAX_BYTES` | Required | Hard SQLite/state ceiling in bytes (10 GiB: `10737418240`) |
+| `COMSTAC_STORAGE_MIN_FREE_BYTES` | Required | Filesystem reserve below which ingestion is rejected (50 GiB: `53687091200`) |
+| `COMSTAC_STORAGE_WARN_FREE_BYTES` | Required | Higher warning watermark; must exceed the reserve (75 GiB: `80530636800`) |
 | `COMSTAC_LOCAL_DOMAINS` | Required | Comma-separated accepted domains, e.g. `example.com` |
 | `COMSTAC_LOCAL_RECIPIENTS` | Required | Comma-separated accepted recipients belonging to the accepted domains |
 
@@ -279,6 +285,11 @@ unsafe.
 | `COMSTAC_BACKUP_DEST` | — | Legacy SCP destination; not recommended for production |
 | `COMSTAC_BACKUP_KEY` | — | Legacy SSH private key path; not recommended for production |
 | `COMSTAC_BACKUP_RETAIN` | `7` | Number of local snapshots to keep |
+
+The long-running server checks total state and free filesystem capacity before
+persisting SMTP or IMAP messages. SQLite also receives the hard page ceiling on
+every connection. `/healthz` becomes non-green before the hard watermark and
+authenticated `/metrics` reports the storage state and rejection count.
 
 ---
 

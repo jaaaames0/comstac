@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"comstac/internal/push"
 	"comstac/internal/relay"
 	"comstac/internal/smtpserver"
+	"comstac/internal/storageguard"
 	"comstac/internal/store"
 	syncer "comstac/internal/sync"
 	"comstac/internal/ui"
@@ -55,12 +57,35 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := store.OpenAndMigrate(ctx, cfg.DBPath)
+	capacity, err := storageguard.New(filepath.Dir(cfg.DBPath), storageguard.Limits{
+		MaxStateBytes: cfg.StorageMaxBytes,
+		MinFreeBytes:  cfg.StorageMinFreeBytes,
+		WarnFreeBytes: cfg.StorageWarnFreeBytes,
+	})
+	if err != nil {
+		slog.Error("configure storage guard", "err", err)
+		os.Exit(1)
+	}
+
+	db, err := store.OpenAndMigrateWithLimit(ctx, cfg.DBPath, cfg.StorageMaxBytes)
 	if err != nil {
 		slog.Error("open store", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
+	if snapshot, snapshotErr := capacity.Snapshot(); snapshotErr != nil {
+		slog.Error("measure storage capacity", "component", "storage", "err", snapshotErr)
+	} else {
+		level := slog.LevelInfo
+		if snapshot.Warning {
+			level = slog.LevelWarn
+		}
+		slog.Log(ctx, level, "storage capacity", "component", "storage",
+			"state_bytes", snapshot.StateBytes, "available_bytes", snapshot.AvailableBytes,
+			"max_state_bytes", snapshot.MaxStateBytes, "min_free_bytes", snapshot.MinFreeBytes,
+			"warn_free_bytes", snapshot.WarnFreeBytes, "warning", snapshot.Warning,
+			"rejecting", snapshot.Rejecting, "reason", snapshot.Reason)
+	}
 
 	csrfSecret := cfg.CSRFSecret
 	if csrfSecret == "" {
@@ -79,6 +104,7 @@ func main() {
 	}
 
 	ingestor := ingest.NewService(db)
+	ingestor.SetStorageGuard(capacity)
 
 	var agentClients *push.AgentClients
 	if cfg.AgentToken != "" {
@@ -108,6 +134,7 @@ func main() {
 		ResolveAccountID: func(ctx context.Context, recipient string) (sql.NullInt64, error) {
 			return store.ResolveLocalAccountID(ctx, db, recipient)
 		},
+		CheckStorage: capacity.CheckPayload,
 	})
 
 	var outRelay *relay.Relay
@@ -177,6 +204,7 @@ func main() {
 	}
 
 	apiSrv := api.New(cfg.HTTPAddr, db, authMgr, outRelay, oauthCfg, agentClients)
+	apiSrv.SetStorageGuard(capacity)
 
 	workers := 3
 	errCh := make(chan error, 5)

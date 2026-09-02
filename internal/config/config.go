@@ -15,16 +15,19 @@ import (
 
 // Config holds runtime options for the single-binary service.
 type Config struct {
-	SMTPAddr        string
-	SMTPDomain      string
-	HTTPAddr        string
-	DBPath          string
-	LocalDomains    []string
-	LocalRecipients []string
-	AdminUsername   string
-	AdminPassword   string
-	SessionTTL      time.Duration
-	CSRFSecret      string
+	SMTPAddr             string
+	SMTPDomain           string
+	HTTPAddr             string
+	DBPath               string
+	LocalDomains         []string
+	LocalRecipients      []string
+	AdminUsername        string
+	AdminPassword        string
+	SessionTTL           time.Duration
+	CSRFSecret           string
+	StorageMaxBytes      int64
+	StorageMinFreeBytes  int64
+	StorageWarnFreeBytes int64
 
 	// Outbound SMTP relay
 	RelayHost     string
@@ -74,6 +77,9 @@ var requiredServerEnv = []string{
 	"COMSTAC_ADMIN_USERNAME",
 	"COMSTAC_ADMIN_PASSWORD",
 	"COMSTAC_CSRF_SECRET",
+	"COMSTAC_STORAGE_MAX_BYTES",
+	"COMSTAC_STORAGE_MIN_FREE_BYTES",
+	"COMSTAC_STORAGE_WARN_FREE_BYTES",
 }
 
 // Load reads and validates the configuration used by the long-running server.
@@ -123,16 +129,19 @@ func FromEnv() Config {
 	}
 
 	return Config{
-		SMTPAddr:        envOr("COMSTAC_SMTP_ADDR", ":2525"),
-		SMTPDomain:      envOr("COMSTAC_SMTP_DOMAIN", "localhost"),
-		HTTPAddr:        envOr("COMSTAC_HTTP_ADDR", ":8080"),
-		DBPath:          envOr("COMSTAC_DB_PATH", "./comstac.db"),
-		LocalDomains:    splitCSV(envOr("COMSTAC_LOCAL_DOMAINS", "")),
-		LocalRecipients: splitCSV(envOr("COMSTAC_LOCAL_RECIPIENTS", "")),
-		AdminUsername:   envOr("COMSTAC_ADMIN_USERNAME", "admin"),
-		AdminPassword:   envOr("COMSTAC_ADMIN_PASSWORD", "changeme123"),
-		SessionTTL:      time.Duration(ttlHours) * time.Hour,
-		CSRFSecret:      envOr("COMSTAC_CSRF_SECRET", ""),
+		SMTPAddr:             envOr("COMSTAC_SMTP_ADDR", ":2525"),
+		SMTPDomain:           envOr("COMSTAC_SMTP_DOMAIN", "localhost"),
+		HTTPAddr:             envOr("COMSTAC_HTTP_ADDR", ":8080"),
+		DBPath:               envOr("COMSTAC_DB_PATH", "./comstac.db"),
+		LocalDomains:         splitCSV(envOr("COMSTAC_LOCAL_DOMAINS", "")),
+		LocalRecipients:      splitCSV(envOr("COMSTAC_LOCAL_RECIPIENTS", "")),
+		AdminUsername:        envOr("COMSTAC_ADMIN_USERNAME", "admin"),
+		AdminPassword:        envOr("COMSTAC_ADMIN_PASSWORD", "changeme123"),
+		SessionTTL:           time.Duration(ttlHours) * time.Hour,
+		CSRFSecret:           envOr("COMSTAC_CSRF_SECRET", ""),
+		StorageMaxBytes:      parsePositiveInt64(envOr("COMSTAC_STORAGE_MAX_BYTES", "")),
+		StorageMinFreeBytes:  parsePositiveInt64(envOr("COMSTAC_STORAGE_MIN_FREE_BYTES", "")),
+		StorageWarnFreeBytes: parsePositiveInt64(envOr("COMSTAC_STORAGE_WARN_FREE_BYTES", "")),
 
 		RelayHost:     envOr("COMSTAC_RELAY_HOST", ""),
 		RelayPort:     relayPort,
@@ -193,6 +202,15 @@ func (c Config) Validate() error {
 	}
 	if c.SessionTTL < time.Hour || c.SessionTTL > 30*24*time.Hour {
 		problems = append(problems, "COMSTAC_SESSION_TTL_HOURS must be between one hour and 30 days")
+	}
+	if c.StorageMaxBytes <= 0 {
+		problems = append(problems, "COMSTAC_STORAGE_MAX_BYTES must be a positive integer")
+	}
+	if c.StorageMinFreeBytes <= 0 {
+		problems = append(problems, "COMSTAC_STORAGE_MIN_FREE_BYTES must be a positive integer")
+	}
+	if c.StorageWarnFreeBytes <= c.StorageMinFreeBytes {
+		problems = append(problems, "COMSTAC_STORAGE_WARN_FREE_BYTES must be greater than COMSTAC_STORAGE_MIN_FREE_BYTES")
 	}
 
 	domains := make(map[string]struct{}, len(c.LocalDomains))
@@ -326,6 +344,14 @@ func parseIntOr(raw string, fallback int) int {
 		return n
 	}
 	return fallback
+}
+
+func parsePositiveInt64(raw string) int64 {
+	n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 func splitCSV(v string) []string {

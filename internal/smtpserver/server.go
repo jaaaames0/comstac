@@ -3,6 +3,7 @@ package smtpserver
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"comstac/internal/ingest"
+	"comstac/internal/storageguard"
 	gosmtp "github.com/emersion/go-smtp"
 )
 
@@ -26,6 +28,7 @@ type Options struct {
 	MaxMessageBytes  int64
 	MaxRecipients    int
 	DataTimeout      time.Duration
+	CheckStorage     func(payloadBytes int64) error
 }
 
 type Server struct {
@@ -154,6 +157,12 @@ func (s *session) Data(r io.Reader) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.opts.DataTimeout)
 	defer cancel()
+	if s.opts.CheckStorage != nil {
+		if err := s.opts.CheckStorage(s.opts.MaxMessageBytes); err != nil {
+			slog.Warn("smtp DATA temporarily rejected", "component", "smtp", "reason", "storage capacity")
+			return smtpError(452, "insufficient system storage")
+		}
+	}
 
 	buf, err := io.ReadAll(r)
 	if err != nil {
@@ -171,7 +180,7 @@ func (s *session) Data(r io.Reader) error {
 		accountID = resolved
 	}
 
-	return s.ingestor.IngestRaw(ctx, ingest.IngestInput{
+	err = s.ingestor.IngestRaw(ctx, ingest.IngestInput{
 		Source:       ingest.SourceSMTP,
 		AccountID:    accountID,
 		EnvelopeFrom: s.envelopeFrom,
@@ -179,6 +188,11 @@ func (s *session) Data(r io.Reader) error {
 		RawMIME:      buf,
 		RemoteIP:     s.remoteIP,
 	})
+	if errors.Is(err, storageguard.ErrUnavailable) {
+		slog.Warn("smtp DATA temporarily rejected", "component", "smtp", "reason", "storage capacity")
+		return smtpError(452, "insufficient system storage")
+	}
+	return err
 }
 
 func (s *session) Reset() {}
@@ -207,6 +221,7 @@ func normalizeOptions(opts Options) Options {
 		MaxMessageBytes:  opts.MaxMessageBytes,
 		MaxRecipients:    opts.MaxRecipients,
 		DataTimeout:      opts.DataTimeout,
+		CheckStorage:     opts.CheckStorage,
 	}
 	if out.MaxConnections <= 0 {
 		out.MaxConnections = 32

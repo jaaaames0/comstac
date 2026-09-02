@@ -15,6 +15,19 @@ listener with `comstac check-config`. A successful check prints only
 - `COMSTAC_SMTP_DOMAIN` (required): explicit non-`localhost` SMTP banner hostname, announced in EHLO greeting (for example `mail.example.com`).
 - `COMSTAC_HTTP_ADDR` (required): loopback-only HTTP/UI/API bind address, for example `127.0.0.1:8080`. Put a TLS reverse proxy in front of it for remote access.
 - `COMSTAC_DB_PATH` (required): absolute SQLite database path.
+- `COMSTAC_STORAGE_MAX_BYTES` (required): hard ceiling for the SQLite database and total-state ingestion checks, in bytes. A 10 GiB ceiling is `10737418240`.
+- `COMSTAC_STORAGE_MIN_FREE_BYTES` (required): filesystem space reserved for other services; ingestion is temporarily rejected before crossing it. A 50 GiB reserve is `53687091200`.
+- `COMSTAC_STORAGE_WARN_FREE_BYTES` (required): higher free-space warning watermark, in bytes. It must exceed the hard reserve. A 75 GiB warning level is `80530636800`.
+
+The storage guard counts regular files beneath the database directory, checks
+filesystem availability before SMTP and IMAP persistence, and applies SQLite's
+page ceiling to every pooled database connection. `/healthz` returns `503` at
+either the free-space warning level or 80% of the state ceiling, allowing the
+existing monitor to alert before ingestion begins returning temporary SMTP
+`452` failures. Authenticated `/metrics` exposes byte counts, watermarks and
+the rejection counter without exposing paths or configuration secrets. The
+database pool is bounded to eight open connections and four idle connections;
+each connection has a five-second SQLite busy timeout.
 
 ## Auth
 - `COMSTAC_ADMIN_USERNAME` (required): bootstrap admin username.
@@ -86,6 +99,7 @@ with a current checkpoint and rollback.
 - Empty/invalid CSV entries are ignored.
 - Relay, IMAP OAuth, browser OAuth and VAPID settings are validated as complete groups when enabled.
 - Comstac enforces bounded HTTP bodies, a shared limiter for `/login` and `/api/login`, at most 32 concurrent SMTP connections, at most four concurrent SMTP DATA handlers, 25 MiB per message, 100 recipients per transaction, and a bounded notification queue.
+- Storage limits are integer byte counts rather than percentages so behavior is explicit and reproducible. Reassess the watermarks if Comstac state moves to another filesystem or the host's storage allocation changes.
 
 ## Example
 ```bash
@@ -96,6 +110,9 @@ export COMSTAC_DB_PATH="/var/lib/comstac/comstac.db"
 export COMSTAC_ADMIN_USERNAME="operator"
 export COMSTAC_ADMIN_PASSWORD="replace-with-a-long-random-password"
 export COMSTAC_CSRF_SECRET="replace-with-at-least-32-random-characters"
+export COMSTAC_STORAGE_MAX_BYTES="10737418240"
+export COMSTAC_STORAGE_MIN_FREE_BYTES="53687091200"
+export COMSTAC_STORAGE_WARN_FREE_BYTES="80530636800"
 export COMSTAC_SESSION_TTL_HOURS="24"
 export COMSTAC_LOCAL_DOMAINS="example.com"
 export COMSTAC_LOCAL_RECIPIENTS="local@example.com"

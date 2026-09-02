@@ -11,6 +11,7 @@ This project adheres to Semantic Versioning.
 - **Configuration preflight**: `comstac check-config` validates server settings without opening the database or starting listeners and prints no values.
 
 ### Security
+- Explicit storage watermarks now protect shared-host capacity: every connection in the bounded SQLite pool receives a hard page ceiling and busy timeout, SMTP and IMAP ingestion check total Comstac state plus reserved free space, SMTP returns a retryable `452` when capacity is unavailable, `/healthz` warns before rejection, and authenticated metrics expose only non-secret capacity counters.
 - Server startup now fails closed unless listener addresses, absolute database path, admin credentials, independent CSRF secret, SMTP hostname and local recipient allowlists are explicitly configured and valid. HTTP must bind to loopback; partially configured relay, IMAP OAuth, browser OAuth and VAPID groups are rejected.
 - `/login` and `/api/login` share an in-process failed-attempt limiter with sanitized event logging, `429 Too Many Requests` and `Retry-After`; the API route can no longer bypass protection intended only for the HTML route.
 - HTTP header/read/write/idle deadlines, a 1 MiB normal mutation-body cap, a 64 KiB login-body cap and a 26 MiB compose/reply cap bound slow or oversized requests.

@@ -12,6 +12,7 @@ import (
 	"net/mail"
 	"strings"
 
+	"comstac/internal/storageguard"
 	"comstac/internal/store"
 	"comstac/internal/validation"
 )
@@ -54,6 +55,7 @@ type MailNotifier interface {
 type Service struct {
 	db       *sql.DB
 	notifier MailNotifier
+	storage  *storageguard.Guard
 }
 
 func NewService(db *sql.DB) *Service {
@@ -63,6 +65,11 @@ func NewService(db *sql.DB) *Service {
 // SetNotifier attaches a push notification backend to the ingest service.
 func (s *Service) SetNotifier(n MailNotifier) {
 	s.notifier = n
+}
+
+// SetStorageGuard attaches the shared-filesystem capacity policy.
+func (s *Service) SetStorageGuard(g *storageguard.Guard) {
+	s.storage = g
 }
 
 // IngestRaw persists raw MIME and normalized metadata using one provider-agnostic path.
@@ -106,51 +113,18 @@ func (s *Service) IngestRaw(ctx context.Context, in IngestInput) error {
 		autoSpam = 1
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-
-	res, err := tx.ExecContext(ctx, `
-		INSERT INTO messages_raw (
-			source, account_id, envelope_from, envelope_to, remote_id, mime, mime_sha256
-		) VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, string(in.Source), nullableID(in.AccountID), in.EnvelopeFrom, strings.Join(in.EnvelopeTo, ","), in.RemoteID, in.RawMIME, sha)
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("insert raw: %w", err)
-	}
-
-	rawID, err := res.LastInsertId()
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("raw id: %w", err)
-	}
-
-	threadID, err := ensureThread(ctx, tx, strings.TrimSpace(strings.ToLower(subject)))
-	if err != nil {
-		tx.Rollback()
+	var messageID int64
+	persist := func() error {
+		var err error
+		messageID, err = s.persist(ctx, in, sha, subject, fromAddr, toAddr, msgID, dateHdr, sentAt, bodyText, authJSON, autoSpam)
 		return err
 	}
-
-	msgRes, err := tx.ExecContext(ctx, `
-		INSERT INTO messages (
-			raw_id, account_id, thread_id, message_id, subject, from_addr, to_addr, date_hdr, sent_at, body_text, auth_results, spam
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, rawID, nullableID(in.AccountID), threadID, msgID, subject, fromAddr, toAddr, dateHdr, nullableStr(sentAt), bodyText, authJSON, autoSpam)
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("insert message: %w", err)
-	}
-
-	messageID, err := msgRes.LastInsertId()
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("message id: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit tx: %w", err)
+	if s.storage != nil {
+		if err := s.storage.WithPayloadCapacity(int64(len(in.RawMIME)), persist); err != nil {
+			return err
+		}
+	} else if err := persist(); err != nil {
+		return err
 	}
 
 	if s.notifier != nil {
@@ -160,6 +134,56 @@ func (s *Service) IngestRaw(ctx context.Context, in IngestInput) error {
 	}
 
 	return nil
+}
+
+func (s *Service) persist(ctx context.Context, in IngestInput, sha, subject, fromAddr, toAddr, msgID, dateHdr, sentAt, bodyText, authJSON string, autoSpam int) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin tx: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO messages_raw (
+			source, account_id, envelope_from, envelope_to, remote_id, mime, mime_sha256
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, string(in.Source), nullableID(in.AccountID), in.EnvelopeFrom, strings.Join(in.EnvelopeTo, ","), in.RemoteID, in.RawMIME, sha)
+	if err != nil {
+		tx.Rollback()
+		return 0, fmt.Errorf("insert raw: %w", err)
+	}
+
+	rawID, err := res.LastInsertId()
+	if err != nil {
+		tx.Rollback()
+		return 0, fmt.Errorf("raw id: %w", err)
+	}
+
+	threadID, err := ensureThread(ctx, tx, strings.TrimSpace(strings.ToLower(subject)))
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+
+	msgRes, err := tx.ExecContext(ctx, `
+		INSERT INTO messages (
+			raw_id, account_id, thread_id, message_id, subject, from_addr, to_addr, date_hdr, sent_at, body_text, auth_results, spam
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, rawID, nullableID(in.AccountID), threadID, msgID, subject, fromAddr, toAddr, dateHdr, nullableStr(sentAt), bodyText, authJSON, autoSpam)
+	if err != nil {
+		tx.Rollback()
+		return 0, fmt.Errorf("insert message: %w", err)
+	}
+
+	messageID, err := msgRes.LastInsertId()
+	if err != nil {
+		tx.Rollback()
+		return 0, fmt.Errorf("message id: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit tx: %w", err)
+	}
+	return messageID, nil
 }
 
 func ensureThread(ctx context.Context, tx *sql.Tx, subjectNorm string) (int64, error) {
