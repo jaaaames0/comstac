@@ -191,7 +191,7 @@ func (c Config) Validate() error {
 	if len(c.CSRFSecret) < 32 {
 		problems = append(problems, "COMSTAC_CSRF_SECRET must be at least 32 characters")
 	}
-	if c.SessionTTL < 5*time.Minute || c.SessionTTL > 30*24*time.Hour {
+	if c.SessionTTL < time.Hour || c.SessionTTL > 30*24*time.Hour {
 		problems = append(problems, "COMSTAC_SESSION_TTL_HOURS must be between one hour and 30 days")
 	}
 

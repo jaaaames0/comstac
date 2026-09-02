@@ -28,6 +28,16 @@ func TestValidateAcceptsSafeMinimalConfig(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsSessionTTLBelowOneHour(t *testing.T) {
+	cfg := validConfig()
+	cfg.SessionTTL = 59 * time.Minute
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "between one hour and 30 days") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestValidateRejectsUnsafeDefaultsAndOpenRecipientPolicy(t *testing.T) {
 	cfg := validConfig()
 	cfg.HTTPAddr = ":8080"
