@@ -4,16 +4,16 @@ package push
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"crypto/elliptic"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
@@ -28,9 +28,23 @@ type Notifier struct {
 	vapidPrivate string
 	vapidSubject string
 	agentClients *AgentClients // nil if agent SSE not configured
+	queue        chan newMailNotification
+	workers      int
 }
 
-func New(db *sql.DB, vapidPublic, vapidPrivate, vapidSubject string, ac *AgentClients) *Notifier {
+const (
+	defaultNotificationQueueSize = 128
+	defaultNotificationWorkers   = 2
+	notificationTimeout          = 15 * time.Second
+)
+
+type newMailNotification struct {
+	subject   string
+	from      string
+	messageID int64
+}
+
+func New(db *sql.DB, vapidPublic, vapidPrivate, vapidSubject string, ac *AgentClients) (*Notifier, error) {
 	// The webpush library prepends "mailto:" if the subject doesn't start with "https:".
 	// Strip any existing "mailto:" prefix to avoid doubling it.
 	subject := strings.TrimPrefix(vapidSubject, "mailto:")
@@ -38,7 +52,7 @@ func New(db *sql.DB, vapidPublic, vapidPrivate, vapidSubject string, ac *AgentCl
 	// Verify that the public key corresponds to the private key. Mismatch means
 	// the keys were generated separately or swapped in the environment file.
 	if err := validateVAPIDKeyPair(vapidPublic, vapidPrivate); err != nil {
-		slog.Error("push: VAPID key pair mismatch — regenerate keys with 'comstac vapid' and update COMSTAC_VAPID_PUBLIC/PRIVATE", "err", err)
+		return nil, fmt.Errorf("validate VAPID key pair: %w", err)
 	}
 
 	return &Notifier{
@@ -47,7 +61,45 @@ func New(db *sql.DB, vapidPublic, vapidPrivate, vapidSubject string, ac *AgentCl
 		vapidPrivate: vapidPrivate,
 		vapidSubject: subject,
 		agentClients: ac,
+		queue:        make(chan newMailNotification, defaultNotificationQueueSize),
+		workers:      defaultNotificationWorkers,
+	}, nil
+}
+
+// QueueNewMail queues a notification without delaying SMTP or IMAP ingest.
+// A full queue drops only the notification; the persisted message remains
+// accepted and visible in the mailbox.
+func (n *Notifier) QueueNewMail(subject, from string, messageID int64) bool {
+	select {
+	case n.queue <- newMailNotification{subject: subject, from: from, messageID: messageID}:
+		return true
+	default:
+		return false
 	}
+}
+
+// Run processes the bounded notification queue with a fixed worker count.
+func (n *Notifier) Run(ctx context.Context) error {
+	var wg sync.WaitGroup
+	for i := 0; i < n.workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case event := <-n.queue:
+					deliveryCtx, cancel := context.WithTimeout(ctx, notificationTimeout)
+					n.SendNewMail(deliveryCtx, event.subject, event.from, event.messageID)
+					cancel()
+				}
+			}
+		}()
+	}
+	<-ctx.Done()
+	wg.Wait()
+	return ctx.Err()
 }
 
 // validateVAPIDKeyPair checks that the private key produces the given public key.
@@ -71,11 +123,7 @@ func validateVAPIDKeyPair(vapidPublic, vapidPrivate string) error {
 	curve := elliptic.P256()
 
 	// Derive public key from private scalar.
-	d := new(big.Int).SetBytes(privBytes)
 	x, y := curve.ScalarBaseMult(privBytes)
-	derivedPub := &ecdsa.PublicKey{Curve: curve, X: x, Y: y}
-	derivedPubBytes := elliptic.Marshal(curve, derivedPub.X, derivedPub.Y)
-	_ = d
 
 	// Decode stored public key.
 	storedX, storedY := elliptic.Unmarshal(curve, pubBytes)
@@ -83,9 +131,8 @@ func validateVAPIDKeyPair(vapidPublic, vapidPrivate string) error {
 		return fmt.Errorf("COMSTAC_VAPID_PUBLIC is not a valid P-256 uncompressed point (%d bytes)", len(pubBytes))
 	}
 
-	if storedX.Cmp(derivedPub.X) != 0 || storedY.Cmp(derivedPub.Y) != 0 {
-		return fmt.Errorf("public key (len=%d) does not match private key (len=%d); derived pubkey starts %x, stored starts %x",
-			len(pubBytes), len(privBytes), derivedPubBytes[:4], pubBytes[:4])
+	if storedX.Cmp(x) != 0 || storedY.Cmp(y) != 0 {
+		return fmt.Errorf("public and private VAPID keys do not match")
 	}
 	return nil
 }
@@ -136,22 +183,20 @@ func (n *Notifier) SendNewMail(ctx context.Context, subject, from string, messag
 				Auth:   sub.Auth,
 			},
 		}
-		resp, err := webpush.SendNotification(msg, ws, opts)
+		resp, err := webpush.SendNotificationWithContext(ctx, msg, ws, opts)
 		if err != nil {
-			slog.Warn("push: send failed", "endpoint", sub.Endpoint[:min(len(sub.Endpoint), 60)], "err", err)
+			slog.Warn("push: send failed", "err", err)
 			continue
 		}
 		if resp.StatusCode == http.StatusGone {
 			resp.Body.Close()
-			slog.Info("push: subscription expired, removing", "endpoint", sub.Endpoint[:min(len(sub.Endpoint), 60)])
-			_ = store.DeletePushSubscription(context.Background(), n.db, sub.Endpoint)
+			slog.Info("push: subscription expired, removing")
+			_ = store.DeletePushSubscription(ctx, n.db, sub.Endpoint)
 		} else if resp.StatusCode >= 400 {
 			var bodyBytes [512]byte
 			n2, _ := resp.Body.Read(bodyBytes[:])
 			resp.Body.Close()
-			slog.Warn("push: unexpected status", "status", resp.StatusCode,
-				"endpoint", sub.Endpoint[:min(len(sub.Endpoint), 60)],
-				"body", string(bodyBytes[:n2]))
+			slog.Warn("push: unexpected status", "status", resp.StatusCode, "body", string(bodyBytes[:n2]))
 		} else {
 			resp.Body.Close()
 		}
@@ -163,11 +208,4 @@ func (n *Notifier) SendNewMail(ctx context.Context, subject, from string, messag
 func GenerateVAPIDKeys() (public, private string, err error) {
 	private, public, err = webpush.GenerateVAPIDKeys()
 	return
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

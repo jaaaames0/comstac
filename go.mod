@@ -3,19 +3,19 @@ module comstac
 go 1.25.0
 
 require (
+	blitiri.com.ar/go/spf v1.5.1
+	github.com/SherClockHolmes/webpush-go v1.4.0
+	github.com/emersion/go-imap/v2 v2.0.0-beta.8
+	github.com/emersion/go-msgauth v0.7.0
+	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
 	github.com/emersion/go-smtp v0.24.0
 	golang.org/x/crypto v0.49.0
 	modernc.org/sqlite v1.48.1
 )
 
 require (
-	blitiri.com.ar/go/spf v1.5.1 // indirect
-	github.com/SherClockHolmes/webpush-go v1.4.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/emersion/go-imap/v2 v2.0.0-beta.8 // indirect
 	github.com/emersion/go-message v0.18.2 // indirect
-	github.com/emersion/go-msgauth v0.7.0 // indirect
-	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

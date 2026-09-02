@@ -21,6 +21,11 @@ type Options struct {
 	LocalDomains     []string
 	LocalRecipients  []string
 	ResolveAccountID func(ctx context.Context, recipient string) (sql.NullInt64, error)
+	MaxConnections   int
+	MaxDataWorkers   int
+	MaxMessageBytes  int64
+	MaxRecipients    int
+	DataTimeout      time.Duration
 }
 
 type Server struct {
@@ -30,26 +35,36 @@ type Server struct {
 }
 
 func New(addr string, ingestor *ingest.Service, opts Options) *Server {
-	return &Server{addr: addr, ingestor: ingestor, opts: opts}
+	return &Server{addr: addr, ingestor: ingestor, opts: normalizeOptions(opts)}
 }
 
 func (s *Server) Run(ctx context.Context) error {
 	srv := s.newSMTPServer()
 	slog.Info("smtp listener starting", "component", "smtp", "addr", s.addr)
-	return runWithContext(ctx, srv, srv.ListenAndServe)
+	ln, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return err
+	}
+	limited := newLimitedListener(ln, s.opts.MaxConnections)
+	return runWithContext(ctx, srv, func() error { return srv.Serve(limited) })
 }
 
 // RunWithListener allows tests to start the SMTP server on an ephemeral listener.
 func (s *Server) RunWithListener(ctx context.Context, ln net.Listener) error {
 	srv := s.newSMTPServer()
 	slog.Info("smtp listener starting", "component", "smtp", "addr", ln.Addr().String())
+	limited := newLimitedListener(ln, s.opts.MaxConnections)
 	return runWithContext(ctx, srv, func() error {
-		return srv.Serve(ln)
+		return srv.Serve(limited)
 	})
 }
 
 func (s *Server) newSMTPServer() *gosmtp.Server {
-	backend := &backend{ingestor: s.ingestor, opts: s.opts}
+	backend := &backend{
+		ingestor:  s.ingestor,
+		opts:      s.opts,
+		dataSlots: make(chan struct{}, s.opts.MaxDataWorkers),
+	}
 	srv := gosmtp.NewServer(backend)
 	srv.Addr = s.addr
 	domain := s.opts.Domain
@@ -60,8 +75,8 @@ func (s *Server) newSMTPServer() *gosmtp.Server {
 	srv.AllowInsecureAuth = true
 	srv.ReadTimeout = 5 * time.Minute
 	srv.WriteTimeout = 5 * time.Minute
-	srv.MaxMessageBytes = 25 * 1024 * 1024
-	srv.MaxRecipients = 100
+	srv.MaxMessageBytes = s.opts.MaxMessageBytes
+	srv.MaxRecipients = s.opts.MaxRecipients
 	return srv
 }
 
@@ -85,8 +100,9 @@ func runWithContext(ctx context.Context, srv *gosmtp.Server, serve func() error)
 }
 
 type backend struct {
-	ingestor *ingest.Service
-	opts     Options
+	ingestor  *ingest.Service
+	opts      Options
+	dataSlots chan struct{}
 }
 
 func (b *backend) NewSession(c *gosmtp.Conn) (gosmtp.Session, error) {
@@ -94,7 +110,7 @@ func (b *backend) NewSession(c *gosmtp.Conn) (gosmtp.Session, error) {
 	if addr, ok := c.Conn().RemoteAddr().(*net.TCPAddr); ok {
 		remoteIP = addr.IP
 	}
-	return &session{ingestor: b.ingestor, opts: normalizeOptions(b.opts), remoteIP: remoteIP}, nil
+	return &session{ingestor: b.ingestor, opts: b.opts, remoteIP: remoteIP, dataSlots: b.dataSlots}, nil
 }
 
 type session struct {
@@ -103,6 +119,7 @@ type session struct {
 	remoteIP     net.IP
 	envelopeFrom string
 	envelopeTo   []string
+	dataSlots    chan struct{}
 }
 
 func (s *session) Mail(from string, _ *gosmtp.MailOptions) error {
@@ -127,6 +144,16 @@ func (s *session) Data(r io.Reader) error {
 	if len(s.envelopeTo) == 0 {
 		return smtpError(554, "no valid recipients")
 	}
+	select {
+	case s.dataSlots <- struct{}{}:
+		defer func() { <-s.dataSlots }()
+	default:
+		slog.Warn("smtp DATA temporarily rejected", "component", "smtp", "reason", "workers saturated")
+		return smtpError(451, "server temporarily busy")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.opts.DataTimeout)
+	defer cancel()
 
 	buf, err := io.ReadAll(r)
 	if err != nil {
@@ -137,14 +164,14 @@ func (s *session) Data(r io.Reader) error {
 
 	accountID := sql.NullInt64{}
 	if s.opts.ResolveAccountID != nil && len(s.envelopeTo) > 0 {
-		resolved, resolveErr := s.opts.ResolveAccountID(context.Background(), s.envelopeTo[0])
+		resolved, resolveErr := s.opts.ResolveAccountID(ctx, s.envelopeTo[0])
 		if resolveErr != nil {
 			return smtpError(451, "temporary account routing failure")
 		}
 		accountID = resolved
 	}
 
-	return s.ingestor.IngestRaw(context.Background(), ingest.IngestInput{
+	return s.ingestor.IngestRaw(ctx, ingest.IngestInput{
 		Source:       ingest.SourceSMTP,
 		AccountID:    accountID,
 		EnvelopeFrom: s.envelopeFrom,
@@ -171,9 +198,30 @@ func (s *session) validateRecipient(addr string) error {
 
 func normalizeOptions(opts Options) Options {
 	out := Options{
+		Domain:           strings.TrimSpace(opts.Domain),
 		LocalDomains:     make([]string, 0, len(opts.LocalDomains)),
 		LocalRecipients:  make([]string, 0, len(opts.LocalRecipients)),
 		ResolveAccountID: opts.ResolveAccountID,
+		MaxConnections:   opts.MaxConnections,
+		MaxDataWorkers:   opts.MaxDataWorkers,
+		MaxMessageBytes:  opts.MaxMessageBytes,
+		MaxRecipients:    opts.MaxRecipients,
+		DataTimeout:      opts.DataTimeout,
+	}
+	if out.MaxConnections <= 0 {
+		out.MaxConnections = 32
+	}
+	if out.MaxDataWorkers <= 0 {
+		out.MaxDataWorkers = 4
+	}
+	if out.MaxMessageBytes <= 0 {
+		out.MaxMessageBytes = 25 * 1024 * 1024
+	}
+	if out.MaxRecipients <= 0 {
+		out.MaxRecipients = 100
+	}
+	if out.DataTimeout <= 0 {
+		out.DataTimeout = 2 * time.Minute
 	}
 	for _, d := range opts.LocalDomains {
 		if clean := strings.ToLower(strings.TrimSpace(d)); clean != "" {
@@ -186,6 +234,45 @@ func normalizeOptions(opts Options) Options {
 		}
 	}
 	return out
+}
+
+type limitedListener struct {
+	net.Listener
+	slots chan struct{}
+}
+
+func newLimitedListener(ln net.Listener, maxConnections int) net.Listener {
+	return &limitedListener{Listener: ln, slots: make(chan struct{}, maxConnections)}
+}
+
+func (l *limitedListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		select {
+		case l.slots <- struct{}{}:
+			return &limitedConn{Conn: conn, release: func() { <-l.slots }}, nil
+		default:
+			_ = conn.SetWriteDeadline(time.Now().Add(time.Second))
+			_, _ = io.WriteString(conn, "421 4.3.2 server temporarily busy\r\n")
+			_ = conn.Close()
+			slog.Warn("smtp connection temporarily rejected", "component", "smtp", "reason", "connection limit reached")
+		}
+	}
+}
+
+type limitedConn struct {
+	net.Conn
+	releaseOnce stdsync.Once
+	release     func()
+}
+
+func (c *limitedConn) Close() error {
+	err := c.Conn.Close()
+	c.releaseOnce.Do(c.release)
+	return err
 }
 
 func normalizeAddress(raw string) (string, error) {

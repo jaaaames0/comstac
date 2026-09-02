@@ -2,17 +2,25 @@
 
 Runtime configuration is environment-variable driven.
 
+The long-running server fails closed unless every required setting below is
+explicitly supplied. Startup errors name missing or invalid variables but never
+print their values.
+
+Validate a prepared environment without opening the database or starting a
+listener with `comstac check-config`. A successful check prints only
+`configuration=valid`.
+
 ## Core Runtime
-- `COMSTAC_SMTP_ADDR` (default `:2525`): SMTP bind address.
-- `COMSTAC_SMTP_DOMAIN` (default `localhost`): SMTP banner hostname, announced in EHLO greeting. Set to your server's FQDN (e.g. `mail.example.com`).
-- `COMSTAC_HTTP_ADDR` (default `:8080`): HTTP/UI/API bind address.
-- `COMSTAC_DB_PATH` (default `./comstac.db`): SQLite database path.
+- `COMSTAC_SMTP_ADDR` (required): SMTP bind address, for example `:2525`.
+- `COMSTAC_SMTP_DOMAIN` (required): explicit non-`localhost` SMTP banner hostname, announced in EHLO greeting (for example `mail.example.com`).
+- `COMSTAC_HTTP_ADDR` (required): loopback-only HTTP/UI/API bind address, for example `127.0.0.1:8080`. Put a TLS reverse proxy in front of it for remote access.
+- `COMSTAC_DB_PATH` (required): absolute SQLite database path.
 
 ## Auth
-- `COMSTAC_ADMIN_USERNAME` (default `admin`): bootstrap admin username.
-- `COMSTAC_ADMIN_PASSWORD` (default `changeme123`): bootstrap admin password.
+- `COMSTAC_ADMIN_USERNAME` (required): bootstrap admin username.
+- `COMSTAC_ADMIN_PASSWORD` (required): bootstrap admin password, at least 12 characters. The example default is rejected.
 - `COMSTAC_SESSION_TTL_HOURS` (default `24`): session lifetime in hours.
-- `COMSTAC_CSRF_SECRET` (default: derived from admin password): HMAC key for CSRF token generation. Set an explicit secret in production for stability across restarts.
+- `COMSTAC_CSRF_SECRET` (required): independent HMAC key for CSRF token generation, at least 32 characters.
 
 ## Outbound SMTP Relay
 - `COMSTAC_RELAY_HOST` (default empty): Smart-host SMTP server hostname. Outbound sending is disabled if not set.
@@ -48,35 +56,25 @@ The callback URI to register in Google Cloud Console is: `{COMSTAC_BASE_URL}/ui/
 Run `comstac authorize` (with CLIENT_ID and CLIENT_SECRET set) to complete the one-time OAuth2 flow and obtain a refresh token.
 
 ## Backup
+The bundled backup command is retained only as a legacy local-snapshot helper.
+It is not a production backup design and its former Makefile timer installation
+is disabled. Prefer an independently reviewed service that creates a consistent
+SQLite snapshot, encrypts before storage or transfer, pins remote identity and
+has a proven isolated restore.
+
 - `COMSTAC_BACKUP_DIR` (default `/var/lib/comstac/backups`): local directory for snapshot files.
-- `COMSTAC_BACKUP_DEST` (default empty): remote SCP destination, e.g. `user@host:/path/to/backups/`. If unset, only local snapshots are kept.
-- `COMSTAC_BACKUP_KEY` (default empty): path to SSH private key for remote transfer. If unset, SSH uses its default key (`~/.ssh/id_rsa`).
+- `COMSTAC_BACKUP_DEST` (legacy; not recommended): remote SCP destination.
+- `COMSTAC_BACKUP_KEY` (legacy; not recommended): path to an SSH private key.
 - `COMSTAC_BACKUP_RETAIN` (default `7`): number of local snapshots to keep before pruning oldest.
 
-### Running a backup
-```bash
-# Manual on-demand
-sudo make backup          # or: sudo comstac backup
-
-# Install daily 02:00 systemd timer
-sudo make install-timer
-
-# Check timer status
-systemctl list-timers comstac-backup.timer
-```
-
-### Restore
-```bash
-# Stop the service, replace the database file, restart
-sudo systemctl stop comstac
-sudo cp /var/lib/comstac/backups/comstac_20260411_020000.sqlite /var/lib/comstac/comstac.db
-sudo systemctl start comstac
-```
+Never restore over a running database. Validate a decrypted snapshot in
+disposable storage, then use a separate stopped-service restoration procedure
+with a current checkpoint and rollback.
 
 ## SMTP Recipient Policy
-- `COMSTAC_LOCAL_DOMAINS` (default empty): comma-separated accepted local domains.
+- `COMSTAC_LOCAL_DOMAINS` (required): comma-separated accepted local domains.
   - Example: `example.com,mail.example.com`
-- `COMSTAC_LOCAL_RECIPIENTS` (default empty): comma-separated accepted full recipient addresses.
+- `COMSTAC_LOCAL_RECIPIENTS` (required): comma-separated accepted full recipient addresses. Every address must belong to an accepted local domain.
   - Example: `local@example.com,alerts@example.com`
 
 ## Agent Integration (ghost-mail SSE)
@@ -86,14 +84,18 @@ sudo systemctl start comstac
 - `COMSTAC_LOCAL_RECIPIENTS` also bootstraps local accounts used for recipient routing.
 - Values are normalized to lowercase where relevant.
 - Empty/invalid CSV entries are ignored.
+- Relay, IMAP OAuth, browser OAuth and VAPID settings are validated as complete groups when enabled.
+- Comstac enforces bounded HTTP bodies, a shared limiter for `/login` and `/api/login`, at most 32 concurrent SMTP connections, at most four concurrent SMTP DATA handlers, 25 MiB per message, 100 recipients per transaction, and a bounded notification queue.
 
 ## Example
 ```bash
 export COMSTAC_SMTP_ADDR=":2525"
-export COMSTAC_HTTP_ADDR=":8080"
-export COMSTAC_DB_PATH="./comstac-dev.db"
-export COMSTAC_ADMIN_USERNAME="admin"
-export COMSTAC_ADMIN_PASSWORD="amsterdam"
+export COMSTAC_SMTP_DOMAIN="mail.example.com"
+export COMSTAC_HTTP_ADDR="127.0.0.1:8080"
+export COMSTAC_DB_PATH="/var/lib/comstac/comstac.db"
+export COMSTAC_ADMIN_USERNAME="operator"
+export COMSTAC_ADMIN_PASSWORD="replace-with-a-long-random-password"
+export COMSTAC_CSRF_SECRET="replace-with-at-least-32-random-characters"
 export COMSTAC_SESSION_TTL_HOURS="24"
 export COMSTAC_LOCAL_DOMAINS="example.com"
 export COMSTAC_LOCAL_RECIPIENTS="local@example.com"

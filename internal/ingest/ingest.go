@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"mime"
 	"net"
 	"net/mail"
@@ -47,7 +48,7 @@ type IngestInput struct {
 
 // MailNotifier is an optional hook called after a message is successfully persisted.
 type MailNotifier interface {
-	SendNewMail(ctx context.Context, subject, from string, messageID int64)
+	QueueNewMail(subject, from string, messageID int64) bool
 }
 
 type Service struct {
@@ -153,7 +154,9 @@ func (s *Service) IngestRaw(ctx context.Context, in IngestInput) error {
 	}
 
 	if s.notifier != nil {
-		go s.notifier.SendNewMail(context.Background(), subject, fromAddr, messageID)
+		if queued := s.notifier.QueueNewMail(subject, fromAddr, messageID); !queued {
+			slog.Warn("push notification dropped", "component", "ingest", "reason", "queue full", "message_id", messageID)
+		}
 	}
 
 	return nil

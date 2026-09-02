@@ -30,10 +30,24 @@ type Server struct {
 	agentClients *push.AgentClients
 	startedAt    time.Time
 	reqCount     atomic.Int64
+	loginLimiter *loginLimiter
 }
 
+const (
+	maxAPIRequestBodyBytes = 1 << 20
+	maxComposeBodyBytes    = 26 << 20
+	httpReadHeaderTimeout  = 10 * time.Second
+	httpReadTimeout        = 30 * time.Second
+	httpWriteTimeout       = 60 * time.Second
+	httpIdleTimeout        = 90 * time.Second
+	httpMaxHeaderBytes     = 1 << 20
+)
+
 func New(addr string, db *sql.DB, auth *authpkg.Manager, r *relay.Relay, oauth *ui.OAuthConfig, ac *push.AgentClients) *Server {
-	return &Server{addr: addr, db: db, auth: auth, relay: r, oauth: oauth, agentClients: ac, startedAt: time.Now()}
+	return &Server{
+		addr: addr, db: db, auth: auth, relay: r, oauth: oauth,
+		agentClients: ac, startedAt: time.Now(), loginLimiter: newLoginLimiter(),
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -116,6 +130,14 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 
+		if isStateChangingMethod(r.Method) {
+			limit := int64(maxAPIRequestBodyBytes)
+			if r.URL.Path == "/ui/compose" || r.URL.Path == "/ui/reply" {
+				limit = maxComposeBodyBytes
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
+		}
+
 		token := ""
 		if s.auth != nil {
 			token = s.auth.ReadToken(r)
@@ -170,7 +192,7 @@ func setSecurityHeaders(w http.ResponseWriter) {
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	httpSrv := &http.Server{Addr: s.addr, Handler: s.Handler()}
+	httpSrv := newHTTPServer(s.addr, s.Handler())
 	go shutdownOnContext(ctx, httpSrv)
 
 	slog.Info("http api listening", "component", "api", "addr", s.addr)
@@ -182,7 +204,7 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func (s *Server) RunWithListener(ctx context.Context, ln net.Listener) error {
-	httpSrv := &http.Server{Handler: s.Handler()}
+	httpSrv := newHTTPServer("", s.Handler())
 	go shutdownOnContext(ctx, httpSrv)
 
 	slog.Info("http api listening", "component", "api", "addr", ln.Addr().String())
@@ -191,6 +213,23 @@ func (s *Server) RunWithListener(ctx context.Context, ln net.Listener) error {
 		return ctx.Err()
 	}
 	return err
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		ReadTimeout:       httpReadTimeout,
+		WriteTimeout:      httpWriteTimeout,
+		IdleTimeout:       httpIdleTimeout,
+		MaxHeaderBytes:    httpMaxHeaderBytes,
+	}
+}
+
+func isStateChangingMethod(method string) bool {
+	return method == http.MethodPost || method == http.MethodPut ||
+		method == http.MethodPatch || method == http.MethodDelete
 }
 
 func shutdownOnContext(ctx context.Context, httpSrv *http.Server) {
@@ -205,6 +244,7 @@ func shutdownOnContext(ctx context.Context, httpSrv *http.Server) {
 func isPublicPath(path string) bool {
 	switch {
 	case path == "/healthz", path == "/login", path == "/api/login",
+		path == "/api/push/sse",
 		path == "/sw.js", path == "/manifest.json",
 		path == "/favicon.ico",
 		path == "/static/icon-192.png", path == "/static/icon-512.png":
@@ -256,13 +296,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(loginPageHTML))
 		return
 	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)
 		username, password, err := readCredentials(r)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeCredentialError(w, err, false)
 			return
 		}
-		token, expires, err := s.auth.Login(r.Context(), username, password)
+		token, expires, retryAfter, err := s.login(r, username, password)
 		if err != nil {
+			if retryAfter > 0 {
+				w.Header().Set("Retry-After", retryAfterSeconds(retryAfter))
+				http.Error(w, "too many login attempts", http.StatusTooManyRequests)
+				return
+			}
 			if errors.Is(err, authpkg.ErrInvalidCredentials) {
 				http.Error(w, "invalid credentials", http.StatusUnauthorized)
 				return
@@ -284,13 +330,19 @@ func (s *Server) handleAPILogin(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)
 	username, password, err := readCredentials(r)
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
+		writeCredentialError(w, err, true)
 		return
 	}
-	token, expires, err := s.auth.Login(r.Context(), username, password)
+	token, expires, retryAfter, err := s.login(r, username, password)
 	if err != nil {
+		if retryAfter > 0 {
+			w.Header().Set("Retry-After", retryAfterSeconds(retryAfter))
+			writeJSONError(w, http.StatusTooManyRequests, "too many login attempts")
+			return
+		}
 		if errors.Is(err, authpkg.ErrInvalidCredentials) {
 			writeJSONError(w, http.StatusUnauthorized, "invalid credentials")
 			return
@@ -300,6 +352,28 @@ func (s *Server) handleAPILogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auth.SetSessionCookie(w, token, expires)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) login(r *http.Request, username, password string) (string, time.Time, time.Duration, error) {
+	key := loginClientKey(r)
+	if allowed, retryAfter := s.loginLimiter.allow(key); !allowed {
+		slog.Warn("login rate limited", "component", "auth", "client", key, "path", r.URL.Path)
+		return "", time.Time{}, retryAfter, authpkg.ErrInvalidCredentials
+	}
+
+	token, expires, err := s.auth.Login(r.Context(), username, password)
+	if err == nil {
+		s.loginLimiter.success(key)
+		return token, expires, 0, nil
+	}
+	if errors.Is(err, authpkg.ErrInvalidCredentials) {
+		blocked, retryAfter := s.loginLimiter.failure(key)
+		slog.Warn("login authentication failed", "component", "auth", "client", key, "path", r.URL.Path, "blocked", blocked)
+		if blocked {
+			return "", time.Time{}, retryAfter, err
+		}
+	}
+	return "", time.Time{}, 0, err
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -575,6 +649,8 @@ func parseBool(raw string) (bool, error) {
 	}
 }
 
+const maxLoginBodyBytes = 64 << 10
+
 func readCredentials(r *http.Request) (username string, password string, err error) {
 	ctype := r.Header.Get("Content-Type")
 	if strings.Contains(ctype, "application/json") {
@@ -582,8 +658,9 @@ func readCredentials(r *http.Request) (username string, password string, err err
 			Username string `json:"username"`
 			Password string `json:"password"`
 		}
-		if decErr := json.NewDecoder(r.Body).Decode(&payload); decErr != nil {
-			return "", "", fmt.Errorf("invalid json payload")
+		decoder := json.NewDecoder(r.Body)
+		if decErr := decoder.Decode(&payload); decErr != nil {
+			return "", "", fmt.Errorf("invalid json payload: %w", decErr)
 		}
 		username = strings.TrimSpace(payload.Username)
 		password = payload.Password
@@ -598,6 +675,23 @@ func readCredentials(r *http.Request) (username string, password string, err err
 		return "", "", fmt.Errorf("username and password are required")
 	}
 	return username, password, nil
+}
+
+func writeCredentialError(w http.ResponseWriter, err error, jsonResponse bool) {
+	status := http.StatusBadRequest
+	message := "invalid login request"
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		status = http.StatusRequestEntityTooLarge
+		message = "login request too large"
+	} else if strings.Contains(err.Error(), "required") {
+		message = "username and password are required"
+	}
+	if jsonResponse {
+		writeJSONError(w, status, message)
+		return
+	}
+	http.Error(w, message, status)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

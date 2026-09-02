@@ -47,32 +47,36 @@ A self-hosted, single-user mail client in a single Go binary. Receives local-dom
 ```bash
 git clone https://github.com/youruser/comstac.git
 cd comstac
-go build -o comstac ./cmd/comstac
+go test ./...
+go build -trimpath -buildvcs=true -o comstac ./cmd/comstac
 ```
 
-Or install directly to `/usr/local/bin`:
-
-```bash
-sudo make install   # builds, copies env file, installs and starts systemd service
-```
+For production, keep the source checkout, protected configuration, mutable
+state and root-owned versioned runtime separate. The deployment section below
+describes the required shape; the Makefile intentionally refuses an in-place
+install over a running binary.
 
 ### 2. Configure
 
-Copy the example env file and fill in your values:
+Create a protected environment file outside the source checkout and fill in
+your values:
 
 ```bash
-cp .env.example comstac.env
-$EDITOR comstac.env
+install -m 0600 /dev/null /path/to/comstac.env
+$EDITOR /path/to/comstac.env
 ```
 
 At minimum you need:
 
 ```bash
+COMSTAC_SMTP_ADDR=:2525
 COMSTAC_SMTP_DOMAIN=mail.example.com
+COMSTAC_HTTP_ADDR=127.0.0.1:8080
+COMSTAC_DB_PATH=/absolute/path/to/comstac.db
 COMSTAC_LOCAL_DOMAINS=example.com
 COMSTAC_LOCAL_RECIPIENTS=you@example.com
 COMSTAC_ADMIN_USERNAME=you
-COMSTAC_ADMIN_PASSWORD=a-strong-password
+COMSTAC_ADMIN_PASSWORD=replace-with-a-long-random-password
 COMSTAC_CSRF_SECRET=$(openssl rand -hex 32)
 ```
 
@@ -81,7 +85,11 @@ See [Configuration](#configuration) below for all options.
 ### 3. Run
 
 ```bash
-source comstac.env && ./comstac
+set -a
+source /path/to/comstac.env
+set +a
+./comstac check-config
+./comstac
 # or for development:
 make run
 ```
@@ -90,7 +98,7 @@ The web UI is available at `http://localhost:8080` (or whatever `COMSTAC_HTTP_AD
 
 ### 4. nginx + TLS (production)
 
-Point nginx at `COMSTAC_HTTP_ADDR` (default `127.0.0.1:8080`) and terminate TLS with Let's Encrypt. A minimal server block:
+Point nginx at the explicitly configured loopback `COMSTAC_HTTP_ADDR` and terminate TLS with Let's Encrypt. A minimal server block:
 
 ```nginx
 server {
@@ -103,23 +111,35 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # Rate-limit login attempts
-    location /login {
+    # Defense in depth around Comstac's built-in shared login limiter.
+    location = /login {
         limit_req zone=login burst=3 nodelay;
         proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location = /api/login {
+        limit_req zone=login burst=3 nodelay;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
     }
 }
 ```
 
 ### 5. Systemd service
 
-A `comstac.service` unit file is included. Install it with:
+Do not overwrite a running binary with `make install`. Build from a clean
+commit with `-trimpath -buildvcs=true`, verify tests and embedded build metadata,
+then place the candidate in a new root-owned, non-writable versioned directory
+such as `/usr/local/lib/comstac/RELEASE/comstac`. Keep configuration under
+`/etc/comstac` and mutable SQLite state under `/var/lib/comstac`. Point the unit
+at the exact versioned path and restart Comstac only under an independently
+timed rollback. Retain the previous release until real inbound/outbound mail,
+login, web, database, backup and monitoring checks pass.
 
-```bash
-sudo make install
-```
-
-This builds the binary, copies your env file to `/etc/comstac/comstac.env` (mode 600), installs the service unit, and starts it. To check status:
+To inspect an already installed service:
 
 ```bash
 systemctl status comstac
@@ -173,52 +193,44 @@ Once configured, a subscription toggle appears on the Accounts page in the UI.
 
 ## Backup
 
-```bash
-# Manual snapshot (creates a hot SQLite copy in COMSTAC_BACKUP_DIR)
-sudo comstac backup
+The bundled `comstac backup` command is a legacy local-snapshot helper, not a
+complete production recovery design. It does not provide encryption or a
+verified remote-host identity boundary. The Makefile therefore refuses to
+install its former timer or invoke it against a live binary.
 
-# Install a daily 02:00 systemd timer
-sudo make install-timer
-
-# Check next scheduled run
-systemctl list-timers comstac-backup.timer
-```
-
-Set `COMSTAC_BACKUP_DEST=user@host:/path/` to also SCP snapshots to a remote host after each run. `COMSTAC_BACKUP_RETAIN` (default `7`) controls how many local snapshots are kept.
-
-**Restore:**
-
-```bash
-sudo systemctl stop comstac
-sudo cp /var/lib/comstac/backups/comstac_20260411_020000.sqlite /var/lib/comstac/comstac.db
-sudo systemctl start comstac
-```
+For production, use an independently reviewed backup service that takes a
+consistent SQLite snapshot, encrypts before persistence or transfer, pins the
+remote identity, has bounded retention and is restore-tested in isolation.
+Never restore over a running database; make restoration a separate stopped-
+service transaction with rollback.
 
 ---
 
 ## Configuration
 
-All configuration is via environment variables. Copy `.env.example` as a starting point.
+All configuration is via environment variables. Required settings have no
+server-startup fallback: Comstac refuses to start when they are absent or
+unsafe.
 
 ### Core
 
 | Variable | Default | Description |
 |---|---|---|
-| `COMSTAC_SMTP_ADDR` | `:2525` | SMTP bind address (use `:25` in production as root or with `CAP_NET_BIND_SERVICE`) |
-| `COMSTAC_SMTP_DOMAIN` | `localhost` | SMTP banner hostname (your server's FQDN) |
-| `COMSTAC_HTTP_ADDR` | `:8080` | HTTP/UI/API bind address |
-| `COMSTAC_DB_PATH` | `./comstac.db` | SQLite database path |
-| `COMSTAC_LOCAL_DOMAINS` | — | Comma-separated accepted domains, e.g. `example.com` |
-| `COMSTAC_LOCAL_RECIPIENTS` | — | Comma-separated accepted recipients, e.g. `you@example.com` |
+| `COMSTAC_SMTP_ADDR` | Required | SMTP bind address (use `:25` with the narrow `CAP_NET_BIND_SERVICE`, not a root process) |
+| `COMSTAC_SMTP_DOMAIN` | Required | Explicit non-localhost SMTP banner hostname |
+| `COMSTAC_HTTP_ADDR` | Required | Loopback-only HTTP/UI/API bind address |
+| `COMSTAC_DB_PATH` | Required | Absolute SQLite database path |
+| `COMSTAC_LOCAL_DOMAINS` | Required | Comma-separated accepted domains, e.g. `example.com` |
+| `COMSTAC_LOCAL_RECIPIENTS` | Required | Comma-separated accepted recipients belonging to the accepted domains |
 
 ### Auth
 
 | Variable | Default | Description |
 |---|---|---|
-| `COMSTAC_ADMIN_USERNAME` | `admin` | Bootstrap admin username |
-| `COMSTAC_ADMIN_PASSWORD` | `changeme123` | Bootstrap admin password — **change this** |
+| `COMSTAC_ADMIN_USERNAME` | Required | Bootstrap admin username |
+| `COMSTAC_ADMIN_PASSWORD` | Required | Bootstrap admin password, at least 12 characters; the example default is rejected |
 | `COMSTAC_SESSION_TTL_HOURS` | `24` | Session lifetime |
-| `COMSTAC_CSRF_SECRET` | — | HMAC key for CSRF tokens — set explicitly in production (`openssl rand -hex 32`) |
+| `COMSTAC_CSRF_SECRET` | Required | Independent HMAC key of at least 32 characters (`openssl rand -hex 32`) |
 
 ### Outbound relay
 
@@ -264,8 +276,8 @@ All configuration is via environment variables. Copy `.env.example` as a startin
 | Variable | Default | Description |
 |---|---|---|
 | `COMSTAC_BACKUP_DIR` | `/var/lib/comstac/backups` | Local snapshot directory |
-| `COMSTAC_BACKUP_DEST` | — | Remote SCP destination, e.g. `user@host:/path/` |
-| `COMSTAC_BACKUP_KEY` | — | SSH private key for remote transfer |
+| `COMSTAC_BACKUP_DEST` | — | Legacy SCP destination; not recommended for production |
+| `COMSTAC_BACKUP_KEY` | — | Legacy SSH private key path; not recommended for production |
 | `COMSTAC_BACKUP_RETAIN` | `7` | Number of local snapshots to keep |
 
 ---
@@ -303,4 +315,4 @@ The binary embeds all frontend assets (templates, static files) at build time �
 - Inbound HTML email renders in a sandboxed `<iframe>` — scripts, forms, and same-origin access blocked; only `allow-popups` and `allow-popups-to-escape-sandbox` are permitted so links open in a new tab
 - SPF/DKIM/DMARC results are persisted and displayed as auth badges per message
 - Security response headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`) are set on all responses
-- nginx rate-limiting on `/login` is recommended in production
+- Apply the same nginx rate limit to exact locations `/login` and `/api/login`; Comstac also shares an in-process limiter across both routes

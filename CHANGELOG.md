@@ -7,7 +7,21 @@ This project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
-- **Agent SSE integration**: `GET /api/push/sse` — public SSE endpoint for OpenClaw agent (ghost-mail). Auth via `X-Agent-Token` header. Fires `event: new_mail\ndata: {"id", "from", "subject"}` on each new message, plus `event: ping\ndata: {}` every 30s. Multiple simultaneous agent connections supported. Configured via `COMSTAC_AGENT_TOKEN`.
+- **Agent SSE integration**: `GET /api/push/sse` — optional token-authenticated SSE endpoint for OpenClaw agent (ghost-mail). Auth via `X-Agent-Token` header. Fires `event: new_mail\ndata: {"id", "from", "subject"}` on each new message, plus `event: ping\ndata: {}` every 30s. Up to four simultaneous agent connections are supported. Configured via `COMSTAC_AGENT_TOKEN` and absent when unset.
+- **Configuration preflight**: `comstac check-config` validates server settings without opening the database or starting listeners and prints no values.
+
+### Security
+- Server startup now fails closed unless listener addresses, absolute database path, admin credentials, independent CSRF secret, SMTP hostname and local recipient allowlists are explicitly configured and valid. HTTP must bind to loopback; partially configured relay, IMAP OAuth, browser OAuth and VAPID groups are rejected.
+- `/login` and `/api/login` share an in-process failed-attempt limiter with sanitized event logging, `429 Too Many Requests` and `Retry-After`; the API route can no longer bypass protection intended only for the HTML route.
+- HTTP header/read/write/idle deadlines, a 1 MiB normal mutation-body cap, a 64 KiB login-body cap and a 26 MiB compose/reply cap bound slow or oversized requests.
+- SMTP is limited to 32 concurrent connections and four concurrent DATA handlers. Saturation receives temporary `421`/`451` responses rather than creating unbounded work; existing message-size, recipient and socket-time limits remain enforced.
+- Per-message notification goroutines were replaced by a 128-item queue with two fixed workers and per-delivery deadlines. Saturation drops only the notification, not already persisted mail.
+- VAPID key mismatch is now a startup error. Push delivery respects cancellation and no longer logs partial subscription endpoint URLs.
+- Agent SSE routing now reaches its token-authenticated handler when enabled, is capped at four concurrent clients, removes clients on disconnect, no longer depends on the deprecated unsafe `CloseNotifier` assertion, and explicitly opts out of the normal finite HTTP write deadline while retaining request-context cancellation.
+- Legacy `make install`, timer-install and broad uninstall targets now refuse destructive in-place operations; documented deployment uses clean, root-owned immutable versioned releases and rollback.
+
+### Changed
+- `go mod tidy` now correctly records packages imported directly by Comstac as direct dependencies.
 
 ## [0.9.3] - 2026-04-17
 ### Security

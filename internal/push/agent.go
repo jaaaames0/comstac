@@ -14,10 +14,13 @@ import (
 // It is safe for concurrent use by multiple goroutines.
 type AgentClients struct {
 	token string
+	slots chan struct{}
 
 	mu    sync.RWMutex
 	conns map[chan<- AgentEvent]struct{}
 }
+
+const maxAgentConnections = 4
 
 // AgentEvent represents an event sent to the agent over SSE.
 type AgentEvent struct {
@@ -30,26 +33,38 @@ type AgentEvent struct {
 // NewAgentClients creates a manager for agent SSE connections.
 // token is the expected X-Agent-Token header value.
 func NewAgentClients(token string) *AgentClients {
-	return &AgentClients{token: token, conns: make(map[chan<- AgentEvent]struct{})}
+	return &AgentClients{
+		token: token,
+		slots: make(chan struct{}, maxAgentConnections),
+		conns: make(map[chan<- AgentEvent]struct{}),
+	}
 }
 
-// Add registers a new SSE connection and returns the event channel and a stop signal.
-// The caller should receive from events and stop receiving when stop closes.
-func (ac *AgentClients) Add() (events chan AgentEvent, stop chan<- struct{}) {
+// Add registers a new SSE connection.
+func (ac *AgentClients) Add() (chan AgentEvent, bool) {
+	select {
+	case ac.slots <- struct{}{}:
+	default:
+		return nil, false
+	}
 	ch := make(chan AgentEvent, 50)
-	stopCh := make(chan struct{})
 	ac.mu.Lock()
 	ac.conns[ch] = struct{}{}
 	ac.mu.Unlock()
-	return ch, stopCh
+	return ch, true
 }
 
 // Remove deregisters a connection. Idempotent.
 func (ac *AgentClients) Remove(ch chan AgentEvent) {
 	ac.mu.Lock()
-	delete(ac.conns, ch)
+	_, ok := ac.conns[ch]
+	if ok {
+		delete(ac.conns, ch)
+	}
 	ac.mu.Unlock()
-	close(ch)
+	if ok {
+		<-ac.slots
+	}
 }
 
 // EmitNewMail sends a new_mail event to all connected agent clients.
@@ -87,6 +102,21 @@ func (ac *AgentClients) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	events, ok := ac.Add()
+	if !ok {
+		w.Header().Set("Retry-After", "30")
+		http.Error(w, "too many agent connections", http.StatusServiceUnavailable)
+		return
+	}
+	defer ac.Remove(events)
+
+	// Streaming responses intentionally outlive the normal HTTP write timeout.
+	// The request context still ends promptly when nginx or the client closes.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		slog.Error("push: agent: clear write deadline", "err", err)
+		http.Error(w, "streaming unavailable", http.StatusInternalServerError)
+		return
+	}
 
 	// SSE headers.
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -101,22 +131,15 @@ func (ac *AgentClients) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("push: agent client connected", "remote", r.RemoteAddr)
 
-	stop := make(chan struct{})
-	defer close(stop)
-
-	events, stopCh := ac.Add()
-	defer close(stopCh)
-
-	_ = events // used in select below
-
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	notify := w.(http.CloseNotifier).CloseNotify()
-
 	for {
 		select {
-		case ev := <-events:
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
 			data, _ := json.Marshal(map[string]any{"id": ev.MessageID, "from": ev.From, "subject": ev.Subject})
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, data)
 			if flusher, ok := w.(http.Flusher); ok {
@@ -127,12 +150,8 @@ func (ac *AgentClients) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if flusher, ok := w.(http.Flusher); ok {
 				flusher.Flush()
 			}
-		case <-notify:
-			slog.Info("push: agent client disconnected", "remote", r.RemoteAddr)
-			return
-		case <-stop:
-			return
 		case <-r.Context().Done():
+			slog.Info("push: agent client disconnected", "remote", r.RemoteAddr)
 			return
 		}
 	}

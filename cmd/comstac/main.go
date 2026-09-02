@@ -40,13 +40,20 @@ func main() {
 		case "vapid":
 			runVAPID()
 			return
+		case "check-config":
+			runCheckConfig()
+			return
 		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cfg := config.FromEnv()
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("load configuration", "err", err)
+		os.Exit(1)
+	}
 
 	db, err := store.OpenAndMigrate(ctx, cfg.DBPath)
 	if err != nil {
@@ -83,7 +90,11 @@ func main() {
 
 	var pushNotifier *push.Notifier
 	if cfg.VAPIDPublicKey != "" && cfg.VAPIDPrivateKey != "" && cfg.VAPIDSubject != "" {
-		pushNotifier = push.New(db, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject, agentClients)
+		pushNotifier, err = push.New(db, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject, agentClients)
+		if err != nil {
+			slog.Error("configure push notifications", "err", err)
+			os.Exit(1)
+		}
 		ingestor.SetNotifier(pushNotifier)
 		slog.Info("push notifications enabled", "component", "push")
 	} else {
@@ -168,10 +179,14 @@ func main() {
 	apiSrv := api.New(cfg.HTTPAddr, db, authMgr, outRelay, oauthCfg, agentClients)
 
 	workers := 3
-	errCh := make(chan error, 4)
+	errCh := make(chan error, 5)
 	go func() { errCh <- smtpSrv.Run(runCtx) }()
 	go func() { errCh <- apiSrv.Run(runCtx) }()
 	go func() { errCh <- syncRunner.Run(runCtx) }()
+	if pushNotifier != nil {
+		workers++
+		go func() { errCh <- pushNotifier.Run(runCtx) }()
+	}
 
 	if ts != nil {
 		workers++
@@ -196,6 +211,21 @@ func main() {
 		slog.Error("server stopped with error", "err", err)
 		os.Exit(1)
 	}
+}
+
+func runCheckConfig() {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "configuration invalid: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg.VAPIDPublicKey != "" {
+		if _, err := push.New(nil, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject, nil); err != nil {
+			fmt.Fprintf(os.Stderr, "configuration invalid: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	fmt.Println("configuration=valid")
 }
 
 func runAuthorize() {

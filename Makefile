@@ -1,15 +1,12 @@
 APP=comstac
-INSTALL_BIN=/usr/local/bin/comstac
-SERVICE_ENV=/etc/comstac/comstac.env
-SERVICE_FILE=/etc/systemd/system/comstac.service
-BACKUP_SERVICE=/etc/systemd/system/comstac-backup.service
-BACKUP_TIMER=/etc/systemd/system/comstac-backup.timer
-DATA_DIR=/var/lib/comstac
 
-.PHONY: run test test-api test-smtp test-store fmt install install-timer uninstall backup
+.PHONY: run build test test-api test-smtp test-store fmt install install-timer uninstall backup
 
 run:
 	go run ./cmd/comstac
+
+build:
+	go build -trimpath -buildvcs=true -o $(APP) ./cmd/comstac
 
 test:
 	go test ./...
@@ -27,31 +24,17 @@ fmt:
 	gofmt -w ./cmd ./internal
 
 install:
-	go build -o $(INSTALL_BIN) ./cmd/comstac
-	mkdir -p $(DATA_DIR)
-	mkdir -p /etc/comstac
-	cp comstac.env $(SERVICE_ENV)
-	chmod 600 $(SERVICE_ENV)
-	cp comstac.service $(SERVICE_FILE)
-	systemctl daemon-reload
-	systemctl enable comstac
-	systemctl restart comstac
-	@echo "Comstac installed and started. Check status with: systemctl status comstac"
+	@echo "Refusing in-place install: build and deploy a new immutable versioned release under guarded rollback."
+	@false
 
 install-timer:
-	cp comstac-backup.service $(BACKUP_SERVICE)
-	cp comstac-backup.timer $(BACKUP_TIMER)
-	systemctl daemon-reload
-	systemctl enable --now comstac-backup.timer
-	@echo "Backup timer installed. Next run: systemctl list-timers comstac-backup.timer"
+	@echo "Refusing legacy timer install: use a reviewed encrypted backup service with restore-test evidence."
+	@false
 
 backup:
-	$(INSTALL_BIN) backup
+	@echo "Refusing legacy backup helper: use a reviewed encrypted and restore-tested backup service."
+	@false
 
 uninstall:
-	systemctl stop comstac || true
-	systemctl disable comstac || true
-	systemctl disable comstac-backup.timer || true
-	rm -f $(SERVICE_FILE) $(BACKUP_SERVICE) $(BACKUP_TIMER) $(INSTALL_BIN)
-	systemctl daemon-reload
-	@echo "Comstac removed. Data at $(DATA_DIR) and env file preserved."
+	@echo "Refusing broad automated uninstall: retire exposure, service, credentials, state and monitoring through a reviewed recovery-aware plan."
+	@false
