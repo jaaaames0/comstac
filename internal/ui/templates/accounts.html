@@ -34,6 +34,42 @@
   </form>
   <p style="font-size:11px;color:var(--dim);margin-top:12px">smtp routing updates take effect on next restart.</p>
 
+  <div class="form-title" style="margin-top:28px;margin-bottom:14px">automatic remote images</div>
+  <p style="font-size:12px;color:var(--muted);margin-bottom:12px;max-width:700px">
+    Exact mailbox addresses listed here may load HTTPS images automatically. This is a privacy preference, not proof of identity:
+    <code>From</code> can be spoofed, current authentication data does not establish aligned DMARC, and image requests may notify the sender.
+    Scripts, forms, refresh, navigation and every other sender-controlled network type remain blocked.
+  </p>
+  <table class="acc-table" style="margin-bottom:14px">
+    <thead><tr><th>approved address</th><th>added</th><th></th></tr></thead>
+    <tbody>
+      {{range .ImageSenders}}
+      <tr>
+        <td>{{.EmailAddress}}</td>
+        <td style="color:var(--dim)">{{.CreatedAt}}</td>
+        <td style="text-align:right">
+          <form hx-post="/ui/accounts" hx-target="#reading-pane" hx-swap="innerHTML" style="display:inline">
+            <input type="hidden" name="action" value="remote_image_remove"/>
+            <input type="hidden" name="email" value="{{.EmailAddress}}"/>
+            <button class="act-d" type="submit">remove</button>
+          </form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="3" style="color:var(--dim);padding:16px 12px">no approved addresses</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  <form hx-post="/ui/accounts" hx-target="#reading-pane" hx-swap="innerHTML"
+        style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+    <input type="hidden" name="action" value="remote_image_add"/>
+    <div class="form-field" style="margin:0">
+      <label class="form-label">exact email address</label>
+      <input class="form-input" style="width:260px" name="email" type="email" required placeholder="sender@example.com"/>
+    </div>
+    <button class="act-p" type="submit">add</button>
+  </form>
+
   {{if eq .OAuthStatus "ok"}}
   <p style="color:var(--accent);font-size:12px;margin-top:16px">✓ re-authorization successful — imap fetcher will resume shortly.</p>
   {{end}}

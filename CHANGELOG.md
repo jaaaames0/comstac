@@ -9,6 +9,10 @@ This project adheres to Semantic Versioning.
 ### Added
 - **Agent SSE integration**: `GET /api/push/sse` — optional token-authenticated SSE endpoint for OpenClaw agent (ghost-mail). Auth via `X-Agent-Token` header. Fires `event: new_mail\ndata: {"id", "from", "subject"}` on each new message, plus `event: ping\ndata: {}` every 30s. Up to four simultaneous agent connections are supported. Configured via `COMSTAC_AGENT_TOKEN` and absent when unset.
 - **Configuration preflight**: `comstac check-config` validates server settings without opening the database or starting listeners and prints no values.
+- **Remote-image privacy preferences**: the operator can add or remove normalized
+  exact mailbox addresses whose messages may load HTTPS images automatically.
+  Preferences are stored in SQLite rather than configuration, and a compact
+  per-message `load images` action remains available for every other sender.
 
 ### Security
 - HTMX 1.9.12 is now pinned inside the embedded static filesystem and served
@@ -22,6 +26,11 @@ This project adheres to Semantic Versioning.
   images are blocked unless explicitly loaded for that one message, while
   scripts, connections, forms, frames, objects, fonts and media remain blocked.
   Sender-supplied meta refresh navigation is removed.
+- Automatic remote-image preferences match the parsed mailbox, never a display
+  name, and do not expand the email iframe beyond HTTPS images. They are
+  deliberately presented as privacy preferences rather than authentication:
+  `From` is spoofable and the currently recorded DKIM/SPF data plus DMARC policy
+  lookup do not establish aligned DMARC passage.
 - Session-cookie deletion now retains the same `Secure`, `HttpOnly`, path and
   `SameSite=Lax` boundary as creation. Dynamic error fragments use
   `html/template`, and OAuth failures no longer echo provider/internal errors.

@@ -32,6 +32,13 @@
   {{end}}
 
   <div class="msg-acts">
+    {{if and .BodyHTML (not .RemoteImagesLoaded)}}
+      <button class="act-s" type="button"
+              hx-get="/ui/message?id={{.ID}}&remote_images=1"
+              hx-target="#reading-pane"
+              hx-swap="innerHTML">load images</button>
+    {{end}}
+
     {{/* Reply dropdown — reply, reply all (conditional), forward */}}
     <div class="dropdown">
       <button class="act-p dropdown-btn" type="button">↩ reply ▾</button>
@@ -119,17 +126,6 @@
 
 <div class="msg-body{{if .BodyHTML}} msg-body--html{{end}}">
   {{if .BodyHTML}}
-  <div class="remote-images">
-    {{if .RemoteImagesLoaded}}
-      remote images loaded for this message
-    {{else}}
-      remote images are blocked for privacy; loading them may notify the sender
-      <button class="act-s" type="button"
-              hx-get="/ui/message?id={{.ID}}&remote_images=1"
-              hx-target="#reading-pane"
-              hx-swap="innerHTML">load images</button>
-    {{end}}
-  </div>
   <iframe class="body-iframe" srcdoc="{{.BodyHTML}}" sandbox="allow-popups allow-popups-to-escape-sandbox" loading="lazy"></iframe>
   {{else}}
   <pre class="body-text">{{.BodyText}}</pre>

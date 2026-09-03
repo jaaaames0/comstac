@@ -265,6 +265,8 @@ type accountsData struct {
 	// Push notifications
 	VAPIDPublicKey string // base64url-encoded; empty when push is not configured
 	PushCount      int    // number of currently registered push subscriptions
+
+	ImageSenders []store.RemoteImageSender
 }
 
 type composeData struct {

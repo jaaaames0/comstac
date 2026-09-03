@@ -11,7 +11,7 @@ A self-hosted, single-user mail client in a single Go binary. Receives local-dom
 - **Unified inbox** — SMTP and IMAP messages appear in one stream, filterable by source
 - **Full-text search** across subject, sender, and body text
 - **Compose and reply** through a configured SMTP smart-host relay — with reply-all, forward, attachment uploads, and CC/BCC
-- **SPF / DKIM / DMARC** validation on inbound mail with per-message auth badges
+- **SPF / DKIM observations and DMARC policy lookup** on inbound mail with per-message badges
 - **Spam auto-flagging** when both SPF and DKIM hard-fail
 - **Agent real-time alerts** (SSE) — OpenClaw agent connects via HTTPS to receive instant `new_mail` events when messages arrive; no polling, no SSH tunnel
 - **Web Push notifications** (VAPID) for new mail — tapping a notification opens the specific email directly
@@ -331,10 +331,16 @@ The binary embeds all frontend assets (templates, static files) at build time �
   the application sends no referrer information.
 - Inbound HTML email renders in a sandboxed `<iframe>` with a second,
   sender-independent CSP. Remote images are blocked by default and may be
-  loaded explicitly for one message; scripts, forms, connections, frames,
-  objects and automatic meta-refresh navigation remain blocked. Links open in
-  a new tab.
-- SPF/DKIM/DMARC results are persisted and displayed as auth badges per message
+  loaded explicitly for one message. The operator may also maintain a
+  SQLite-backed list of normalized exact mailbox addresses whose HTTPS images
+  load automatically. Scripts, forms, connections, frames, objects and
+  automatic meta-refresh navigation remain blocked in both modes. Links open
+  in a new tab.
+- An automatic-image address is a privacy preference, not proof of sender
+  identity: the `From` header can be spoofed. Comstac records SPF and DKIM
+  observations and looks up the sender domain's published DMARC policy, but it
+  does not currently establish aligned DMARC passage. Allowlisting therefore
+  grants only HTTPS image loading and can still expose a tracking request.
 - Security response headers (`Content-Security-Policy`, `X-Content-Type-Options`,
   `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` and
   `Cross-Origin-Opener-Policy`) are set on all responses

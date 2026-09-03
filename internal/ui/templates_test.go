@@ -50,13 +50,22 @@ func TestMessageDetailRemoteImageControlAndTemplateEscaping(t *testing.T) {
 	blocked := newMessageDetailData(detail, false)
 	var rendered bytes.Buffer
 	execute(&rendered, "message_detail", blocked)
-	if !strings.Contains(rendered.String(), "remote images are blocked") || !strings.Contains(rendered.String(), "remote_images=1") {
+	blockedHTML := rendered.String()
+	if strings.Contains(blockedHTML, "remote images are blocked") || strings.Contains(blockedHTML, `class="remote-images"`) {
+		t.Fatalf("large remote-image banner survived: %s", blockedHTML)
+	}
+	if !strings.Contains(blockedHTML, "remote_images=1") || !strings.Contains(blockedHTML, ">load images</button>") {
 		t.Fatalf("blocked control missing: %s", rendered.String())
+	}
+	bodyIndex := strings.Index(blockedHTML, `<div class="msg-body`)
+	loadIndex := strings.Index(blockedHTML, "remote_images=1")
+	if bodyIndex < 0 || loadIndex < 0 || loadIndex > bodyIndex {
+		t.Fatal("load-images action is not in the message header")
 	}
 
 	rendered.Reset()
 	execute(&rendered, "message_detail", newMessageDetailData(detail, true))
-	if !strings.Contains(rendered.String(), "remote images loaded for this message") || strings.Contains(rendered.String(), ">load images</button>") {
+	if strings.Contains(rendered.String(), "remote images loaded for this message") || strings.Contains(rendered.String(), ">load images</button>") {
 		t.Fatalf("loaded state incorrect: %s", rendered.String())
 	}
 
@@ -64,6 +73,23 @@ func TestMessageDetailRemoteImageControlAndTemplateEscaping(t *testing.T) {
 	execute(&rendered, "send_error", sendErrorData{Msg: `<img src=x onerror=alert(1)>`})
 	if strings.Contains(rendered.String(), `<img src=x`) || !strings.Contains(rendered.String(), "&lt;img") {
 		t.Fatalf("error output was not escaped: %s", rendered.String())
+	}
+}
+
+func TestAccountsRemoteImagePreferenceEscapesAddresses(t *testing.T) {
+	var rendered bytes.Buffer
+	execute(&rendered, "accounts", accountsData{ImageSenders: []store.RemoteImageSender{{
+		EmailAddress: `\"><img src=x onerror=alert(1)>@example.com`,
+		CreatedAt:    "2026-09-03 00:00:00",
+	}}})
+	html := rendered.String()
+	if strings.Contains(html, `<img src=x`) || !strings.Contains(html, "&lt;img") {
+		t.Fatalf("remote-image address was not escaped: %s", html)
+	}
+	for _, want := range []string{"privacy preference", "From", "aligned DMARC", "remote_image_add", "remote_image_remove"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("accounts preference UI missing %q", want)
+		}
 	}
 }
 

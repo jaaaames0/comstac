@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -111,7 +112,8 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		loadRemoteImages := req.URL.Query().Get("remote_images") == "1"
+		loadRemoteImages := remoteImagesAllowed(req.Context(), db, detail.FromAddr,
+			req.URL.Query().Get("remote_images") == "1")
 		execute(w, "message_detail", newMessageDetailData(detail, loadRemoteImages))
 	})
 
@@ -121,15 +123,30 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 			return
 		}
 		if req.Method == http.MethodPost {
-			email := strings.TrimSpace(req.FormValue("email"))
-			name := strings.TrimSpace(req.FormValue("name"))
-			if email == "" {
-				http.Error(w, "email is required", http.StatusBadRequest)
-				return
-			}
-			_, err := store.CreateLocalAccount(req.Context(), db, email, name)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+			switch req.FormValue("action") {
+			case "remote_image_add":
+				if _, err := store.AddRemoteImageSender(req.Context(), db, req.FormValue("email")); err != nil {
+					http.Error(w, "invalid mailbox address", http.StatusBadRequest)
+					return
+				}
+			case "remote_image_remove":
+				if err := store.RemoveRemoteImageSender(req.Context(), db, req.FormValue("email")); err != nil {
+					http.Error(w, "invalid mailbox address", http.StatusBadRequest)
+					return
+				}
+			case "":
+				email := strings.TrimSpace(req.FormValue("email"))
+				name := strings.TrimSpace(req.FormValue("name"))
+				if email == "" {
+					http.Error(w, "email is required", http.StatusBadRequest)
+					return
+				}
+				if _, err := store.CreateLocalAccount(req.Context(), db, email, name); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+			default:
+				http.Error(w, "invalid account action", http.StatusBadRequest)
 				return
 			}
 		} else if req.Method != http.MethodGet {
@@ -164,6 +181,11 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 		if vapidPublicKey != "" {
 			pushCount, _ = store.CountPushSubscriptions(req.Context(), db)
 		}
+		imageSenders, err := store.ListRemoteImageSenders(req.Context(), db)
+		if err != nil {
+			http.Error(w, "failed to list remote-image preferences", http.StatusInternalServerError)
+			return
+		}
 		execute(w, "accounts", accountsData{
 			Accounts:         accounts,
 			OAuthEnabled:     oauthEnabled,
@@ -173,6 +195,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 			IMAPAuthFailedAt: imapAuthFailedAt,
 			VAPIDPublicKey:   vapidPublicKey,
 			PushCount:        pushCount,
+			ImageSenders:     imageSenders,
 		})
 	})
 
@@ -499,7 +522,8 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		execute(w, "message_detail", newMessageDetailData(detail, false))
+		execute(w, "message_detail", newMessageDetailData(detail,
+			remoteImagesAllowed(req.Context(), db, detail.FromAddr, false)))
 	})
 
 	mux.HandleFunc("/ui/push/subscribe", func(w http.ResponseWriter, req *http.Request) {
@@ -547,6 +571,18 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 	if oauth != nil && oauth.ClientID != "" && oauth.ClientSecret != "" && oauth.BaseURL != "" {
 		registerOAuthRoutes(mux, oauth)
 	}
+}
+
+func remoteImagesAllowed(ctx context.Context, db *sql.DB, fromHeader string, explicitlyRequested bool) bool {
+	if explicitlyRequested {
+		return true
+	}
+	allowed, err := store.RemoteImageSenderAllowed(ctx, db, fromHeader)
+	if err != nil {
+		slog.Error("check remote-image preference", "component", "ui", "err", err)
+		return false
+	}
+	return allowed
 }
 
 // registerOAuthRoutes wires GET /ui/oauth/start and GET /ui/oauth/callback.
