@@ -25,7 +25,6 @@
 
     <div class="row-acts">
       <button class="ra{{if not .Archived}} ra--trash{{end}}"
-              onclick="event.stopPropagation()"
               hx-post="/ui/message/actions"
               hx-target="#reading-pane"
               hx-swap="innerHTML"

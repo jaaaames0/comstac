@@ -11,6 +11,20 @@ This project adheres to Semantic Versioning.
 - **Configuration preflight**: `comstac check-config` validates server settings without opening the database or starting listeners and prints no values.
 
 ### Security
+- HTMX 1.9.12 is now pinned inside the embedded static filesystem and served
+  with its independently verified Subresource Integrity digest; production no
+  longer executes JavaScript from a CDN. HTMX evaluation and swapped-script
+  execution are disabled.
+- All responses now carry a restrictive Content Security Policy with a fresh
+  per-response nonce for the fixed application script. Login and authenticated
+  responses use `Cache-Control: no-store`, and referrers are suppressed.
+- Sandboxed HTML-email documents receive their own deny-by-default CSP. Remote
+  images are blocked unless explicitly loaded for that one message, while
+  scripts, connections, forms, frames, objects, fonts and media remain blocked.
+  Sender-supplied meta refresh navigation is removed.
+- Session-cookie deletion now retains the same `Secure`, `HttpOnly`, path and
+  `SameSite=Lax` boundary as creation. Dynamic error fragments use
+  `html/template`, and OAuth failures no longer echo provider/internal errors.
 - Explicit storage watermarks now protect shared-host capacity: every connection in the bounded SQLite pool receives a hard page ceiling and busy timeout, SMTP and IMAP ingestion check total Comstac state plus reserved free space, SMTP returns a retryable `452` when capacity is unavailable, `/healthz` warns before rejection, and authenticated metrics expose only non-secret capacity counters.
 - Server startup now fails closed unless listener addresses, absolute database path, admin credentials, independent CSRF secret, SMTP hostname and local recipient allowlists are explicitly configured and valid. HTTP must bind to loopback; partially configured relay, IMAP OAuth, browser OAuth and VAPID groups are rejected.
 - `/login` and `/api/login` share an in-process failed-attempt limiter with sanitized event logging, `429 Too Many Requests` and `Retry-After`; the API route can no longer bypass protection intended only for the HTML route.
@@ -23,6 +37,10 @@ This project adheres to Semantic Versioning.
 
 ### Changed
 - `go mod tidy` now correctly records packages imported directly by Comstac as direct dependencies.
+- The module minimum is Go 1.26. `x/net`, `x/crypto`, `x/sys` and the indirect
+  JWT dependency were advanced to their mutually compatible fixed releases;
+  `govulncheck` reports zero reachable and zero imported-package
+  vulnerabilities.
 
 ## [0.9.3] - 2026-04-17
 ### Security

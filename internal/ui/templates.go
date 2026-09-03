@@ -15,6 +15,7 @@ import (
 
 	"comstac/internal/store"
 	"comstac/internal/validation"
+	"golang.org/x/net/html"
 )
 
 //go:embed templates/*.html
@@ -27,12 +28,12 @@ var tmpl *template.Template
 
 func init() {
 	funcMap := template.FuncMap{
-		"fmtTime":        fmtTime,
-		"fmtFullDate":    fmtFullDate,
-		"fmtSender":      fmtSender,
-		"authClass":      authClass,
-		"actionBtn":      actionBtn,
-		"fmtSnooze":      fmtSnooze,
+		"fmtTime":     fmtTime,
+		"fmtFullDate": fmtFullDate,
+		"fmtSender":   fmtSender,
+		"authClass":   authClass,
+		"actionBtn":   actionBtn,
+		"fmtSnooze":   fmtSnooze,
 		"json": func(v any) string {
 			b, _ := json.Marshal(v)
 			return string(b)
@@ -117,7 +118,6 @@ func authClass(result string) string {
 	}
 }
 
-
 // actionBtn renders a POST action form button as safe HTML (used in reading pane).
 func actionBtn(id int64, action, value, label, class string) template.HTML {
 	idStr := strconv.FormatInt(id, 10)
@@ -135,6 +135,7 @@ func actionBtn(id int64, action, value, label, class string) template.HTML {
 
 type indexData struct {
 	CSRFToken      string
+	CSPNonce       string
 	IMAPAuthFailed bool // true when the IMAP token source has an active invalid_grant error
 }
 
@@ -184,13 +185,14 @@ func newMessageListData(items []store.MessageListItem, opts store.ListMessageOpt
 
 type messageDetailData struct {
 	store.MessageDetail
-	Auth        *validation.Result
-	HasReplyAll bool   // true when there are other recipients worth reply-all-ing
-	BodyHTML    string // BodyHTML with <base target="_blank"> injected; shadows embedded field
+	Auth               *validation.Result
+	HasReplyAll        bool   // true when there are other recipients worth reply-all-ing
+	BodyHTML           string // isolated HTML document; shadows embedded field
+	RemoteImagesLoaded bool
 }
 
-func newMessageDetailData(d *store.MessageDetail) messageDetailData {
-	out := messageDetailData{MessageDetail: *d}
+func newMessageDetailData(d *store.MessageDetail, loadRemoteImages bool) messageDetailData {
+	out := messageDetailData{MessageDetail: *d, RemoteImagesLoaded: loadRemoteImages}
 	if d.AuthResults != "" {
 		var res validation.Result
 		if err := json.Unmarshal([]byte(d.AuthResults), &res); err == nil {
@@ -199,9 +201,57 @@ func newMessageDetailData(d *store.MessageDetail) messageDetailData {
 	}
 	out.HasReplyAll = d.CcAddr != "" || strings.Contains(d.ToAddr, ",")
 	if d.BodyHTML != "" {
-		out.BodyHTML = `<base target="_blank">` + d.BodyHTML
+		out.BodyHTML = emailBodyDocument(d.BodyHTML, loadRemoteImages)
 	}
 	return out
+}
+
+const emailBodyCSPBase = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; script-src 'none'; style-src 'unsafe-inline'; font-src 'none'; media-src 'none'; connect-src 'none'; "
+
+// emailBodyDocument places a restrictive policy before any sender-controlled
+// markup. Remote fetches are denied unless the operator explicitly reloads
+// this particular message with remote images enabled. The iframe sandbox is a
+// second, independent boundary.
+func emailBodyDocument(body string, loadRemoteImages bool) string {
+	imgPolicy := "img-src data:;"
+	if loadRemoteImages {
+		imgPolicy = "img-src data: https:; upgrade-insecure-requests;"
+	}
+	return `<meta http-equiv="Content-Security-Policy" content="` + emailBodyCSPBase + imgPolicy + `">` +
+		`<base target="_blank">` + stripMetaRefresh(body)
+}
+
+// stripMetaRefresh prevents sender markup from navigating the sandboxed frame
+// automatically. Tokenizing instead of matching with a regular expression
+// handles quoted delimiters and arbitrary attribute ordering safely while
+// preserving every other source token verbatim.
+func stripMetaRefresh(body string) string {
+	z := html.NewTokenizer(strings.NewReader(body))
+	var out strings.Builder
+	out.Grow(len(body))
+	for {
+		tokenType := z.Next()
+		if tokenType == html.ErrorToken {
+			return out.String()
+		}
+		raw := append([]byte(nil), z.Raw()...)
+		if tokenType == html.StartTagToken || tokenType == html.SelfClosingTagToken {
+			token := z.Token()
+			if strings.EqualFold(token.Data, "meta") && isRefreshMeta(token.Attr) {
+				continue
+			}
+		}
+		_, _ = out.Write(raw)
+	}
+}
+
+func isRefreshMeta(attrs []html.Attribute) bool {
+	for _, attr := range attrs {
+		if strings.EqualFold(attr.Key, "http-equiv") && strings.EqualFold(strings.TrimSpace(attr.Val), "refresh") {
+			return true
+		}
+	}
+	return false
 }
 
 type accountsData struct {

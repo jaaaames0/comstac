@@ -10,7 +10,8 @@
   <link rel="icon" type="image/png" href="/static/icon-192.png"/>
   <link rel="apple-touch-icon" href="/static/icon-192.png"/>
   <title>comstac</title>
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false}'/>
+  <script src="/static/htmx-1.9.12.min.js" integrity="sha256-RJMXreeIHpSVENthSZHhlcOgmcTHkcJNrOxV+fSipFI="></script>
   <style>
     /* ── Reset & tokens ─────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -548,6 +549,8 @@
     .msg-body--html {
       padding: 0;
       overflow: hidden;
+	  display: flex;
+	  flex-direction: column;
     }
 
     .body-text {
@@ -560,12 +563,23 @@
     }
 
     .body-iframe {
+	  flex: 1;
+	  min-height: 0;
       width: 100%;
-      height: 100%;
       border: none;
       display: block;
       background: #fff;
     }
+
+	.remote-images {
+	  flex-shrink: 0;
+	  padding: 8px 24px;
+	  color: var(--dim);
+	  background: var(--surface-2);
+	  border-bottom: 1px solid var(--border);
+	  font-size: 11px;
+	}
+	.remote-images .act-s { margin-left: 8px; }
 
     /* ── Compose / Reply ─────────────────────────────────────────── */
     .form-pane { padding: 22px 24px; }
@@ -818,7 +832,7 @@
     </div>
   </div>
 
-  <script>
+  <script nonce="{{.CSPNonce}}">
     (function() {
       // Detect ?msg= param set by the service worker when a notification is clicked.
       // Extract and clean it up immediately so the URL stays tidy.
@@ -1148,11 +1162,7 @@
       });
     })();
   </script>
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js');
-    }
-  </script>
+  <script src="/static/app.js"></script>
 </body>
 </html>
 {{end}}

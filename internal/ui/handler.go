@@ -52,6 +52,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		execute(w, "index", indexData{
 			CSRFToken:      CSRFToken(req.Context()),
+			CSPNonce:       CSPNonce(req.Context()),
 			IMAPAuthFailed: imapAuthFailed,
 		})
 	})
@@ -110,7 +111,8 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		execute(w, "message_detail", newMessageDetailData(detail))
+		loadRemoteImages := req.URL.Query().Get("remote_images") == "1"
+		execute(w, "message_detail", newMessageDetailData(detail, loadRemoteImages))
 	})
 
 	mux.HandleFunc("/ui/accounts", func(w http.ResponseWriter, req *http.Request) {
@@ -375,8 +377,8 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 		}
 		items, err := store.SearchMessages(req.Context(), db, q, 50)
 		if err != nil {
-			fmt.Fprintf(w, `<div class="list-wrap"><p style="color:var(--muted);padding:10px">Search error: %s</p></div>`,
-				strings.ReplaceAll(err.Error(), "<", "&lt;"))
+			slog.Error("search messages", "component", "ui", "err", err)
+			execute(w, "search_error", struct{ Msg string }{Msg: "Search temporarily unavailable."})
 			return
 		}
 		opts := store.ListMessageOptions{Limit: 50}
@@ -497,7 +499,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		execute(w, "message_detail", newMessageDetailData(detail))
+		execute(w, "message_detail", newMessageDetailData(detail, false))
 	})
 
 	mux.HandleFunc("/ui/push/subscribe", func(w http.ResponseWriter, req *http.Request) {
@@ -593,7 +595,8 @@ func registerOAuthRoutes(mux *http.ServeMux, cfg *OAuthConfig) {
 	mux.HandleFunc("/ui/oauth/callback", func(w http.ResponseWriter, req *http.Request) {
 		q := req.URL.Query()
 		if errMsg := q.Get("error"); errMsg != "" {
-			http.Error(w, "OAuth error: "+errMsg, http.StatusBadRequest)
+			slog.Warn("oauth callback rejected", "component", "imap", "reason", "provider_error")
+			http.Error(w, "OAuth authorization failed", http.StatusBadRequest)
 			return
 		}
 		if !verifyState(q.Get("state")) {
@@ -609,7 +612,7 @@ func registerOAuthRoutes(mux *http.ServeMux, cfg *OAuthConfig) {
 		refreshToken, err := imap.ExchangeCode(req.Context(), cfg.ClientID, cfg.ClientSecret, code, redirectURI)
 		if err != nil {
 			slog.Error("oauth callback: exchange code", "err", err)
-			http.Error(w, "token exchange failed: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "token exchange failed", http.StatusInternalServerError)
 			return
 		}
 

@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -119,6 +121,32 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "max-age=86400")
 		_, _ = w.Write(data)
 	})
+	publicMux.HandleFunc("/static/htmx-1.9.12.min.js", func(w http.ResponseWriter, r *http.Request) {
+		data, err := ui.StaticFS.ReadFile("static/htmx-1.9.12.min.js")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		// The tagged upstream distribution has no trailing newline. The
+		// repository keeps text files newline-terminated, so remove that one
+		// packaging byte to preserve the verified upstream payload and SRI.
+		if len(data) > 0 && data[len(data)-1] == '\n' {
+			data = data[:len(data)-1]
+		}
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		_, _ = w.Write(data)
+	})
+	publicMux.HandleFunc("/static/app.js", func(w http.ResponseWriter, r *http.Request) {
+		data, err := ui.StaticFS.ReadFile("static/app.js")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = w.Write(data)
+	})
 	publicMux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		data, err := ui.StaticFS.ReadFile("static/icon-192.png")
 		if err != nil {
@@ -198,17 +226,35 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		setSecurityHeaders(w)
+		nonce, err := newCSPNonce()
+		if err != nil {
+			slog.Error("generate CSP nonce", "component", "api", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		setSecurityHeaders(w, nonce)
+		r = r.WithContext(ui.WithCSPNonce(r.Context(), nonce))
 		core.ServeHTTP(w, r)
 	})
 }
 
-func setSecurityHeaders(w http.ResponseWriter) {
+func newCSPNonce() (string, error) {
+	var raw [18]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return base64.RawStdEncoding.EncodeToString(raw[:]), nil
+}
+
+func setSecurityHeaders(w http.ResponseWriter, nonce string) {
 	h := w.Header()
+	h.Set("Cache-Control", "no-store")
+	h.Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'nonce-"+nonce+"'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self'; frame-src 'self' data: blob:; worker-src 'self'; manifest-src 'self'; upgrade-insecure-requests")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
-	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+	h.Set("Cross-Origin-Opener-Policy", "same-origin")
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -267,7 +313,8 @@ func isPublicPath(path string) bool {
 		path == "/api/push/sse",
 		path == "/sw.js", path == "/manifest.json",
 		path == "/favicon.ico",
-		path == "/static/icon-192.png", path == "/static/icon-512.png":
+		path == "/static/icon-192.png", path == "/static/icon-512.png",
+		path == "/static/htmx-1.9.12.min.js", path == "/static/app.js":
 		return true
 	default:
 		return false

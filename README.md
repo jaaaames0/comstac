@@ -33,7 +33,7 @@ A self-hosted, single-user mail client in a single Go binary. Receives local-dom
 
 ## Requirements
 
-- **Go 1.21+** (the module uses `go 1.25.0` syntax; any recent toolchain works)
+- **Go 1.26+** (production releases are built with the pinned host toolchain)
 - A Linux host with outbound SMTP access via a smart-host relay (port 587)
 - **nginx** (recommended) as a TLS-terminating reverse proxy with Let's Encrypt
 - For Gmail IMAP: a Google Cloud project with an OAuth2 credential
@@ -323,7 +323,19 @@ The binary embeds all frontend assets (templates, static files) at build time â€
 - Passwords are stored with bcrypt
 - Session cookies are `HttpOnly`, `Secure`, `SameSite=Lax`
 - All state-mutating requests require an HMAC-SHA256 CSRF token derived per session
-- Inbound HTML email renders in a sandboxed `<iframe>` â€” scripts, forms, and same-origin access blocked; only `allow-popups` and `allow-popups-to-escape-sandbox` are permitted so links open in a new tab
+- HTMX 1.9.12 is embedded in the binary rather than loaded from a CDN; its
+  served bytes are pinned by Subresource Integrity. The upstream BSD license is
+  retained in `internal/ui/static/HTMX-LICENSE.txt`.
+- A nonce-based Content Security Policy blocks unapproved scripts, framing and
+  object content. Login and authenticated responses are marked `no-store`, and
+  the application sends no referrer information.
+- Inbound HTML email renders in a sandboxed `<iframe>` with a second,
+  sender-independent CSP. Remote images are blocked by default and may be
+  loaded explicitly for one message; scripts, forms, connections, frames,
+  objects and automatic meta-refresh navigation remain blocked. Links open in
+  a new tab.
 - SPF/DKIM/DMARC results are persisted and displayed as auth badges per message
-- Security response headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`) are set on all responses
+- Security response headers (`Content-Security-Policy`, `X-Content-Type-Options`,
+  `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` and
+  `Cross-Origin-Opener-Policy`) are set on all responses
 - Apply the same nginx rate limit to exact locations `/login` and `/api/login`; Comstac also shares an in-process limiter across both routes
