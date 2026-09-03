@@ -12,6 +12,7 @@ func validConfig() Config {
 		SMTPDomain:           "mail.example.com",
 		SMTPTLSCert:          "/etc/comstac/tls/fullchain.pem",
 		SMTPTLSKey:           "/etc/comstac/tls/privkey.pem",
+		ACMEChallengeDir:     "/etc/comstac/acme-webroot/.well-known/acme-challenge",
 		HTTPAddr:             "127.0.0.1:8080",
 		DBPath:               "/var/lib/comstac/comstac.db",
 		LocalDomains:         []string{"example.com"},
@@ -97,6 +98,7 @@ func TestLoadAcceptsExplicitSafeEnvironment(t *testing.T) {
 		"COMSTAC_SMTP_DOMAIN":             "mail.example.com",
 		"COMSTAC_SMTP_TLS_CERT":           "/etc/comstac/tls/fullchain.pem",
 		"COMSTAC_SMTP_TLS_KEY":            "/etc/comstac/tls/privkey.pem",
+		"COMSTAC_ACME_CHALLENGE_DIR":      "/etc/comstac/acme-webroot/.well-known/acme-challenge",
 		"COMSTAC_HTTP_ADDR":               "127.0.0.1:8080",
 		"COMSTAC_DB_PATH":                 "/var/lib/comstac/comstac.db",
 		"COMSTAC_LOCAL_DOMAINS":           "example.com",
@@ -136,7 +138,8 @@ func TestLoadRejectsMalformedStorageLimit(t *testing.T) {
 	values := map[string]string{
 		"COMSTAC_SMTP_ADDR": ":2525", "COMSTAC_SMTP_DOMAIN": "mail.example.com",
 		"COMSTAC_SMTP_TLS_CERT": "/etc/comstac/tls/fullchain.pem", "COMSTAC_SMTP_TLS_KEY": "/etc/comstac/tls/privkey.pem",
-		"COMSTAC_HTTP_ADDR": "127.0.0.1:8080", "COMSTAC_DB_PATH": "/var/lib/comstac/comstac.db",
+		"COMSTAC_ACME_CHALLENGE_DIR": "/etc/comstac/acme-webroot/.well-known/acme-challenge",
+		"COMSTAC_HTTP_ADDR":          "127.0.0.1:8080", "COMSTAC_DB_PATH": "/var/lib/comstac/comstac.db",
 		"COMSTAC_LOCAL_DOMAINS": "example.com", "COMSTAC_LOCAL_RECIPIENTS": "mail@example.com",
 		"COMSTAC_ADMIN_USERNAME": "operator", "COMSTAC_ADMIN_PASSWORD": "a-long-test-password",
 		"COMSTAC_CSRF_SECRET":       "0123456789abcdef0123456789abcdef",
@@ -165,5 +168,15 @@ func TestValidateRejectsInvalidSMTPTLSPaths(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("Validate() error %q does not contain %q", err, want)
 		}
+	}
+}
+
+func TestValidateRejectsRelativeACMEChallengeDir(t *testing.T) {
+	cfg := validConfig()
+	cfg.ACMEChallengeDir = "relative-acme-directory"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "COMSTAC_ACME_CHALLENGE_DIR") {
+		t.Fatalf("Validate() error = %v", err)
 	}
 }

@@ -20,6 +20,10 @@ This project adheres to Semantic Versioning.
   invalid, expired, not-yet-valid or hostname-mismatched material; TLS 1.2 is
   the minimum. Plaintext MX delivery remains available and `REQUIRETLS` is not
   advertised.
+- A bounded public HTTP-01 handler serves only strictly named regular token
+  files from a required root-managed read-only directory. This permits
+  dedicated SMTP-certificate webroot renewal without exposing a shared nginx
+  key or granting Comstac challenge-file write access.
 - HTMX 1.9.12 is now pinned inside the embedded static filesystem and served
   with its independently verified Subresource Integrity digest; production no
   longer executes JavaScript from a CDN. HTMX evaluation and swapped-script

@@ -35,11 +35,17 @@ type Server struct {
 	reqCount     atomic.Int64
 	loginLimiter *loginLimiter
 	storage      *storageguard.Guard
+	acmeDir      string
 }
 
 // SetStorageGuard exposes storage warning state to health and metrics.
 func (s *Server) SetStorageGuard(g *storageguard.Guard) {
 	s.storage = g
+}
+
+// SetACMEChallengeDir enables the bounded public HTTP-01 token endpoint.
+func (s *Server) SetACMEChallengeDir(dir string) {
+	s.acmeDir = dir
 }
 
 const (
@@ -81,6 +87,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	publicMux.HandleFunc("/login", s.handleLogin)
 	publicMux.HandleFunc("/api/login", s.handleAPILogin)
+	publicMux.HandleFunc(acmeChallengePrefix, s.handleACMEChallenge)
 	publicMux.HandleFunc("/sw.js", func(w http.ResponseWriter, r *http.Request) {
 		data, err := ui.StaticFS.ReadFile("static/sw.js")
 		if err != nil {
@@ -314,7 +321,8 @@ func isPublicPath(path string) bool {
 		path == "/sw.js", path == "/manifest.json",
 		path == "/favicon.ico",
 		path == "/static/icon-192.png", path == "/static/icon-512.png",
-		path == "/static/htmx-1.9.12.min.js", path == "/static/app.js":
+		path == "/static/htmx-1.9.12.min.js", path == "/static/app.js",
+		strings.HasPrefix(path, acmeChallengePrefix):
 		return true
 	default:
 		return false

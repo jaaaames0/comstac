@@ -73,6 +73,7 @@ COMSTAC_SMTP_ADDR=:2525
 COMSTAC_SMTP_DOMAIN=mail.example.com
 COMSTAC_SMTP_TLS_CERT=/absolute/path/to/dedicated-mail-fullchain.pem
 COMSTAC_SMTP_TLS_KEY=/absolute/path/to/dedicated-mail-privkey.pem
+COMSTAC_ACME_CHALLENGE_DIR=/absolute/read-only/path/to/.well-known/acme-challenge
 COMSTAC_HTTP_ADDR=127.0.0.1:8080
 COMSTAC_DB_PATH=/absolute/path/to/comstac.db
 COMSTAC_LOCAL_DOMAINS=example.com
@@ -225,6 +226,7 @@ unsafe.
 | `COMSTAC_SMTP_DOMAIN` | Required | Explicit non-localhost SMTP banner hostname |
 | `COMSTAC_SMTP_TLS_CERT` | Required | Absolute path to the dedicated inbound SMTP full certificate chain |
 | `COMSTAC_SMTP_TLS_KEY` | Required | Absolute path to the dedicated inbound SMTP private key; do not reuse a shared web-server key |
+| `COMSTAC_ACME_CHALLENGE_DIR` | Required | Absolute path to the root-managed HTTP-01 token directory; Comstac serves only bounded token filenames read-only |
 | `COMSTAC_HTTP_ADDR` | Required | Loopback-only HTTP/UI/API bind address |
 | `COMSTAC_DB_PATH` | Required | Absolute SQLite database path |
 | `COMSTAC_STORAGE_MAX_BYTES` | Required | Hard SQLite/state ceiling in bytes (10 GiB: `10737418240`) |
@@ -300,6 +302,9 @@ certificate/key pair is required for server startup and `comstac check-config`
 verifies that it is readable, currently valid and covers
 `COMSTAC_SMTP_DOMAIN`. Plaintext public-MX delivery remains accepted when a
 sender does not negotiate STARTTLS; Comstac does not advertise `REQUIRETLS`.
+The public HTTP-01 endpoint serves only strictly named, bounded regular files
+from `COMSTAC_ACME_CHALLENGE_DIR`, allowing webroot renewal through an existing
+reverse proxy without granting Comstac write access or private-key authority.
 
 ---
 

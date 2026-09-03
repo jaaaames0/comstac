@@ -61,6 +61,10 @@ func main() {
 		slog.Error("configure inbound SMTP TLS", "err", err)
 		os.Exit(1)
 	}
+	if err := api.ValidateACMEChallengeDir(cfg.ACMEChallengeDir); err != nil {
+		slog.Error("configure ACME HTTP-01 challenge", "err", err)
+		os.Exit(1)
+	}
 
 	capacity, err := storageguard.New(filepath.Dir(cfg.DBPath), storageguard.Limits{
 		MaxStateBytes: cfg.StorageMaxBytes,
@@ -211,6 +215,7 @@ func main() {
 
 	apiSrv := api.New(cfg.HTTPAddr, db, authMgr, outRelay, oauthCfg, agentClients)
 	apiSrv.SetStorageGuard(capacity)
+	apiSrv.SetACMEChallengeDir(cfg.ACMEChallengeDir)
 
 	workers := 3
 	errCh := make(chan error, 5)
@@ -254,6 +259,10 @@ func runCheckConfig() {
 		os.Exit(1)
 	}
 	if _, err := smtpserver.LoadTLSConfig(cfg.SMTPTLSCert, cfg.SMTPTLSKey, cfg.SMTPDomain, time.Now()); err != nil {
+		fmt.Fprintf(os.Stderr, "configuration invalid: %v\n", err)
+		os.Exit(1)
+	}
+	if err := api.ValidateACMEChallengeDir(cfg.ACMEChallengeDir); err != nil {
 		fmt.Fprintf(os.Stderr, "configuration invalid: %v\n", err)
 		os.Exit(1)
 	}

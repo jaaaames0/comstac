@@ -15,6 +15,7 @@ listener with `comstac check-config`. A successful check prints only
 - `COMSTAC_SMTP_DOMAIN` (required): explicit non-`localhost` SMTP banner hostname, announced in EHLO greeting (for example `mail.example.com`).
 - `COMSTAC_SMTP_TLS_CERT` (required): absolute path to the dedicated inbound SMTP full certificate chain.
 - `COMSTAC_SMTP_TLS_KEY` (required): absolute path to the matching dedicated inbound SMTP private key. Do not point Comstac at a shared web-server private key.
+- `COMSTAC_ACME_CHALLENGE_DIR` (required): absolute path to the root-managed HTTP-01 token directory. Comstac needs read/traverse access but must not be able to write it.
 - `COMSTAC_HTTP_ADDR` (required): loopback-only HTTP/UI/API bind address, for example `127.0.0.1:8080`. Put a TLS reverse proxy in front of it for remote access.
 - `COMSTAC_DB_PATH` (required): absolute SQLite database path.
 - `COMSTAC_STORAGE_MAX_BYTES` (required): hard ceiling for the SQLite database and total-state ingestion checks, in bytes. A 10 GiB ceiling is `10737418240`.
@@ -36,6 +37,10 @@ newer. `comstac check-config` verifies the pair is readable, currently valid
 and covers `COMSTAC_SMTP_DOMAIN` without printing either path. Plaintext MX
 delivery remains available for senders that do not negotiate STARTTLS;
 `REQUIRETLS` is not advertised.
+For webroot renewal, the public challenge endpoint serves only regular files
+whose names contain ASCII letters, digits, `_` or `-`, with a 4 KiB maximum.
+It rejects subdirectories, traversal, symlinks and other methods. Keep the
+configured directory root-managed and read-only to the service.
 
 ## Auth
 - `COMSTAC_ADMIN_USERNAME` (required): bootstrap admin username.
@@ -115,6 +120,7 @@ export COMSTAC_SMTP_ADDR=":2525"
 export COMSTAC_SMTP_DOMAIN="mail.example.com"
 export COMSTAC_SMTP_TLS_CERT="/etc/comstac/tls/fullchain.pem"
 export COMSTAC_SMTP_TLS_KEY="/etc/comstac/tls/privkey.pem"
+export COMSTAC_ACME_CHALLENGE_DIR="/etc/comstac/acme-webroot/.well-known/acme-challenge"
 export COMSTAC_HTTP_ADDR="127.0.0.1:8080"
 export COMSTAC_DB_PATH="/var/lib/comstac/comstac.db"
 export COMSTAC_ADMIN_USERNAME="operator"
