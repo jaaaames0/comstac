@@ -13,6 +13,8 @@ listener with `comstac check-config`. A successful check prints only
 ## Core Runtime
 - `COMSTAC_SMTP_ADDR` (required): SMTP bind address, for example `:2525`.
 - `COMSTAC_SMTP_DOMAIN` (required): explicit non-`localhost` SMTP banner hostname, announced in EHLO greeting (for example `mail.example.com`).
+- `COMSTAC_SMTP_TLS_CERT` (required): absolute path to the dedicated inbound SMTP full certificate chain.
+- `COMSTAC_SMTP_TLS_KEY` (required): absolute path to the matching dedicated inbound SMTP private key. Do not point Comstac at a shared web-server private key.
 - `COMSTAC_HTTP_ADDR` (required): loopback-only HTTP/UI/API bind address, for example `127.0.0.1:8080`. Put a TLS reverse proxy in front of it for remote access.
 - `COMSTAC_DB_PATH` (required): absolute SQLite database path.
 - `COMSTAC_STORAGE_MAX_BYTES` (required): hard ceiling for the SQLite database and total-state ingestion checks, in bytes. A 10 GiB ceiling is `10737418240`.
@@ -28,6 +30,12 @@ existing monitor to alert before ingestion begins returning temporary SMTP
 the rejection counter without exposing paths or configuration secrets. The
 database pool is bounded to eight open connections and four idle connections;
 each connection has a five-second SQLite busy timeout.
+
+The inbound listener advertises opportunistic STARTTLS and accepts TLS 1.2 or
+newer. `comstac check-config` verifies the pair is readable, currently valid
+and covers `COMSTAC_SMTP_DOMAIN` without printing either path. Plaintext MX
+delivery remains available for senders that do not negotiate STARTTLS;
+`REQUIRETLS` is not advertised.
 
 ## Auth
 - `COMSTAC_ADMIN_USERNAME` (required): bootstrap admin username.
@@ -105,6 +113,8 @@ with a current checkpoint and rollback.
 ```bash
 export COMSTAC_SMTP_ADDR=":2525"
 export COMSTAC_SMTP_DOMAIN="mail.example.com"
+export COMSTAC_SMTP_TLS_CERT="/etc/comstac/tls/fullchain.pem"
+export COMSTAC_SMTP_TLS_KEY="/etc/comstac/tls/privkey.pem"
 export COMSTAC_HTTP_ADDR="127.0.0.1:8080"
 export COMSTAC_DB_PATH="/var/lib/comstac/comstac.db"
 export COMSTAC_ADMIN_USERNAME="operator"

@@ -10,6 +10,8 @@ func validConfig() Config {
 	return Config{
 		SMTPAddr:             ":2525",
 		SMTPDomain:           "mail.example.com",
+		SMTPTLSCert:          "/etc/comstac/tls/fullchain.pem",
+		SMTPTLSKey:           "/etc/comstac/tls/privkey.pem",
 		HTTPAddr:             "127.0.0.1:8080",
 		DBPath:               "/var/lib/comstac/comstac.db",
 		LocalDomains:         []string{"example.com"},
@@ -93,6 +95,8 @@ func TestLoadAcceptsExplicitSafeEnvironment(t *testing.T) {
 	values := map[string]string{
 		"COMSTAC_SMTP_ADDR":               ":2525",
 		"COMSTAC_SMTP_DOMAIN":             "mail.example.com",
+		"COMSTAC_SMTP_TLS_CERT":           "/etc/comstac/tls/fullchain.pem",
+		"COMSTAC_SMTP_TLS_KEY":            "/etc/comstac/tls/privkey.pem",
 		"COMSTAC_HTTP_ADDR":               "127.0.0.1:8080",
 		"COMSTAC_DB_PATH":                 "/var/lib/comstac/comstac.db",
 		"COMSTAC_LOCAL_DOMAINS":           "example.com",
@@ -131,6 +135,7 @@ func TestValidateRejectsInvalidStorageLimits(t *testing.T) {
 func TestLoadRejectsMalformedStorageLimit(t *testing.T) {
 	values := map[string]string{
 		"COMSTAC_SMTP_ADDR": ":2525", "COMSTAC_SMTP_DOMAIN": "mail.example.com",
+		"COMSTAC_SMTP_TLS_CERT": "/etc/comstac/tls/fullchain.pem", "COMSTAC_SMTP_TLS_KEY": "/etc/comstac/tls/privkey.pem",
 		"COMSTAC_HTTP_ADDR": "127.0.0.1:8080", "COMSTAC_DB_PATH": "/var/lib/comstac/comstac.db",
 		"COMSTAC_LOCAL_DOMAINS": "example.com", "COMSTAC_LOCAL_RECIPIENTS": "mail@example.com",
 		"COMSTAC_ADMIN_USERNAME": "operator", "COMSTAC_ADMIN_PASSWORD": "a-long-test-password",
@@ -144,5 +149,21 @@ func TestLoadRejectsMalformedStorageLimit(t *testing.T) {
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "COMSTAC_STORAGE_MAX_BYTES") {
 		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestValidateRejectsInvalidSMTPTLSPaths(t *testing.T) {
+	cfg := validConfig()
+	cfg.SMTPTLSCert = "relative-cert.pem"
+	cfg.SMTPTLSKey = cfg.SMTPTLSCert
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() accepted invalid SMTP TLS paths")
+	}
+	for _, want := range []string{"COMSTAC_SMTP_TLS_CERT", "COMSTAC_SMTP_TLS_KEY", "different paths"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Validate() error %q does not contain %q", err, want)
+		}
 	}
 }

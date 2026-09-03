@@ -71,6 +71,8 @@ At minimum you need:
 ```bash
 COMSTAC_SMTP_ADDR=:2525
 COMSTAC_SMTP_DOMAIN=mail.example.com
+COMSTAC_SMTP_TLS_CERT=/absolute/path/to/dedicated-mail-fullchain.pem
+COMSTAC_SMTP_TLS_KEY=/absolute/path/to/dedicated-mail-privkey.pem
 COMSTAC_HTTP_ADDR=127.0.0.1:8080
 COMSTAC_DB_PATH=/absolute/path/to/comstac.db
 COMSTAC_LOCAL_DOMAINS=example.com
@@ -221,6 +223,8 @@ unsafe.
 |---|---|---|
 | `COMSTAC_SMTP_ADDR` | Required | SMTP bind address (use `:25` with the narrow `CAP_NET_BIND_SERVICE`, not a root process) |
 | `COMSTAC_SMTP_DOMAIN` | Required | Explicit non-localhost SMTP banner hostname |
+| `COMSTAC_SMTP_TLS_CERT` | Required | Absolute path to the dedicated inbound SMTP full certificate chain |
+| `COMSTAC_SMTP_TLS_KEY` | Required | Absolute path to the dedicated inbound SMTP private key; do not reuse a shared web-server key |
 | `COMSTAC_HTTP_ADDR` | Required | Loopback-only HTTP/UI/API bind address |
 | `COMSTAC_DB_PATH` | Required | Absolute SQLite database path |
 | `COMSTAC_STORAGE_MAX_BYTES` | Required | Hard SQLite/state ceiling in bytes (10 GiB: `10737418240`) |
@@ -290,6 +294,12 @@ The long-running server checks total state and free filesystem capacity before
 persisting SMTP or IMAP messages. SQLite also receives the hard page ceiling on
 every connection. `/healthz` becomes non-green before the hard watermark and
 authenticated `/metrics` reports the storage state and rejection count.
+
+Inbound SMTP advertises opportunistic STARTTLS with TLS 1.2 or newer. The
+certificate/key pair is required for server startup and `comstac check-config`
+verifies that it is readable, currently valid and covers
+`COMSTAC_SMTP_DOMAIN`. Plaintext public-MX delivery remains accepted when a
+sender does not negotiate STARTTLS; Comstac does not advertise `REQUIRETLS`.
 
 ---
 

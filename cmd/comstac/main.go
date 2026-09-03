@@ -56,6 +56,11 @@ func main() {
 		slog.Error("load configuration", "err", err)
 		os.Exit(1)
 	}
+	tlsConfig, err := smtpserver.LoadTLSConfig(cfg.SMTPTLSCert, cfg.SMTPTLSKey, cfg.SMTPDomain, time.Now())
+	if err != nil {
+		slog.Error("configure inbound SMTP TLS", "err", err)
+		os.Exit(1)
+	}
 
 	capacity, err := storageguard.New(filepath.Dir(cfg.DBPath), storageguard.Limits{
 		MaxStateBytes: cfg.StorageMaxBytes,
@@ -135,6 +140,7 @@ func main() {
 			return store.ResolveLocalAccountID(ctx, db, recipient)
 		},
 		CheckStorage: capacity.CheckPayload,
+		TLSConfig:    tlsConfig,
 	})
 
 	var outRelay *relay.Relay
@@ -244,6 +250,10 @@ func main() {
 func runCheckConfig() {
 	cfg, err := config.Load()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "configuration invalid: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := smtpserver.LoadTLSConfig(cfg.SMTPTLSCert, cfg.SMTPTLSKey, cfg.SMTPDomain, time.Now()); err != nil {
 		fmt.Fprintf(os.Stderr, "configuration invalid: %v\n", err)
 		os.Exit(1)
 	}

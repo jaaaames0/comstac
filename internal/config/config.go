@@ -17,6 +17,8 @@ import (
 type Config struct {
 	SMTPAddr             string
 	SMTPDomain           string
+	SMTPTLSCert          string
+	SMTPTLSKey           string
 	HTTPAddr             string
 	DBPath               string
 	LocalDomains         []string
@@ -70,6 +72,8 @@ type Config struct {
 var requiredServerEnv = []string{
 	"COMSTAC_SMTP_ADDR",
 	"COMSTAC_SMTP_DOMAIN",
+	"COMSTAC_SMTP_TLS_CERT",
+	"COMSTAC_SMTP_TLS_KEY",
 	"COMSTAC_HTTP_ADDR",
 	"COMSTAC_DB_PATH",
 	"COMSTAC_LOCAL_DOMAINS",
@@ -131,6 +135,8 @@ func FromEnv() Config {
 	return Config{
 		SMTPAddr:             envOr("COMSTAC_SMTP_ADDR", ":2525"),
 		SMTPDomain:           envOr("COMSTAC_SMTP_DOMAIN", "localhost"),
+		SMTPTLSCert:          envOr("COMSTAC_SMTP_TLS_CERT", ""),
+		SMTPTLSKey:           envOr("COMSTAC_SMTP_TLS_KEY", ""),
 		HTTPAddr:             envOr("COMSTAC_HTTP_ADDR", ":8080"),
 		DBPath:               envOr("COMSTAC_DB_PATH", "./comstac.db"),
 		LocalDomains:         splitCSV(envOr("COMSTAC_LOCAL_DOMAINS", "")),
@@ -187,6 +193,15 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.SMTPDomain) == "" || strings.EqualFold(strings.TrimSpace(c.SMTPDomain), "localhost") {
 		problems = append(problems, "COMSTAC_SMTP_DOMAIN must be an explicit non-localhost hostname")
+	}
+	if !filepath.IsAbs(c.SMTPTLSCert) {
+		problems = append(problems, "COMSTAC_SMTP_TLS_CERT must be an absolute path")
+	}
+	if !filepath.IsAbs(c.SMTPTLSKey) {
+		problems = append(problems, "COMSTAC_SMTP_TLS_KEY must be an absolute path")
+	}
+	if c.SMTPTLSCert != "" && c.SMTPTLSCert == c.SMTPTLSKey {
+		problems = append(problems, "COMSTAC_SMTP_TLS_CERT and COMSTAC_SMTP_TLS_KEY must be different paths")
 	}
 	if !filepath.IsAbs(c.DBPath) {
 		problems = append(problems, "COMSTAC_DB_PATH must be an absolute path")

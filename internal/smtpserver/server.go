@@ -2,6 +2,7 @@ package smtpserver
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -29,6 +30,7 @@ type Options struct {
 	MaxRecipients    int
 	DataTimeout      time.Duration
 	CheckStorage     func(payloadBytes int64) error
+	TLSConfig        *tls.Config
 }
 
 type Server struct {
@@ -80,6 +82,7 @@ func (s *Server) newSMTPServer() *gosmtp.Server {
 	srv.WriteTimeout = 5 * time.Minute
 	srv.MaxMessageBytes = s.opts.MaxMessageBytes
 	srv.MaxRecipients = s.opts.MaxRecipients
+	srv.TLSConfig = s.opts.TLSConfig
 	return srv
 }
 
@@ -222,6 +225,9 @@ func normalizeOptions(opts Options) Options {
 		MaxRecipients:    opts.MaxRecipients,
 		DataTimeout:      opts.DataTimeout,
 		CheckStorage:     opts.CheckStorage,
+	}
+	if opts.TLSConfig != nil {
+		out.TLSConfig = opts.TLSConfig.Clone()
 	}
 	if out.MaxConnections <= 0 {
 		out.MaxConnections = 32

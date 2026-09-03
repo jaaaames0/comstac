@@ -15,6 +15,11 @@ This project adheres to Semantic Versioning.
   per-message `load images` action remains available for every other sender.
 
 ### Security
+- Inbound SMTP now advertises opportunistic STARTTLS using a required dedicated
+  certificate/key pair. Startup and `check-config` fail closed on unreadable,
+  invalid, expired, not-yet-valid or hostname-mismatched material; TLS 1.2 is
+  the minimum. Plaintext MX delivery remains available and `REQUIRETLS` is not
+  advertised.
 - HTMX 1.9.12 is now pinned inside the embedded static filesystem and served
   with its independently verified Subresource Integrity digest; production no
   longer executes JavaScript from a CDN. HTMX evaluation and swapped-script
