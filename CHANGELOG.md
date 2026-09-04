@@ -24,7 +24,8 @@ This project adheres to Semantic Versioning.
 - A bounded public HTTP-01 handler serves only strictly named regular token
   files from a required root-managed read-only directory. This permits
   dedicated SMTP-certificate webroot renewal without exposing a shared nginx
-  key or granting Comstac challenge-file write access.
+  key or granting Comstac challenge-file write access. Traversal-like paths
+  are rejected before HTTP mux canonicalization can redirect them.
 - HTMX 1.9.12 is now pinned inside the embedded static filesystem and served
   with its independently verified Subresource Integrity digest; production no
   longer executes JavaScript from a CDN. HTMX evaluation and swapped-script

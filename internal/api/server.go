@@ -180,6 +180,13 @@ func (s *Server) Handler() http.Handler {
 
 	core := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.reqCount.Add(1)
+		// Route the entire challenge namespace directly so ServeMux cannot
+		// canonicalize traversal-like paths into redirects before the strict
+		// token validator rejects them.
+		if strings.HasPrefix(r.URL.Path, acmeChallengePrefix) {
+			s.handleACMEChallenge(w, r)
+			return
+		}
 		if isPublicPath(r.URL.Path) {
 			publicMux.ServeHTTP(w, r)
 			return

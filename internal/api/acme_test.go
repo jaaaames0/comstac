@@ -78,3 +78,25 @@ func TestValidateACMEChallengeDirDoesNotLeakPath(t *testing.T) {
 		t.Fatalf("error leaked configured path: %v", err)
 	}
 }
+
+func TestACMEChallengeRejectsTraversalWithoutCanonicalRedirect(t *testing.T) {
+	dir := t.TempDir()
+	srv := api.New(":0", nil, nil, nil, nil, nil)
+	srv.SetACMEChallengeDir(dir)
+	httpServer := httptest.NewServer(srv.Handler())
+	defer httpServer.Close()
+
+	client := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	response, err := client.Get(httpServer.URL + "/.well-known/acme-challenge/../secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("traversal status = %d, want 404 without redirect", response.StatusCode)
+	}
+}
