@@ -36,7 +36,9 @@ The inbound listener advertises opportunistic STARTTLS and accepts TLS 1.2 or
 newer. `comstac check-config` verifies the pair is readable, currently valid
 and covers `COMSTAC_SMTP_DOMAIN` without printing either path. Plaintext MX
 delivery remains available for senders that do not negotiate STARTTLS;
-`REQUIRETLS` is not advertised.
+`REQUIRETLS` is not advertised. After atomically installing a renewed pair,
+send `SIGHUP` to validate and activate it for new handshakes without restarting
+the service. A failed reload leaves the last good in-memory certificate active.
 For webroot renewal, the public challenge endpoint serves only regular files
 whose names contain ASCII letters, digits, `_` or `-`, with a 4 KiB maximum.
 It rejects subdirectories, traversal, symlinks and other methods. Keep the

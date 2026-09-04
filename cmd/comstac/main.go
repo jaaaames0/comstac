@@ -56,11 +56,28 @@ func main() {
 		slog.Error("load configuration", "err", err)
 		os.Exit(1)
 	}
-	tlsConfig, err := smtpserver.LoadTLSConfig(cfg.SMTPTLSCert, cfg.SMTPTLSKey, cfg.SMTPDomain, time.Now())
+	tlsReloader, err := smtpserver.NewCertificateReloader(cfg.SMTPTLSCert, cfg.SMTPTLSKey, cfg.SMTPDomain, time.Now())
 	if err != nil {
 		slog.Error("configure inbound SMTP TLS", "err", err)
 		os.Exit(1)
 	}
+	hupCh := make(chan os.Signal, 1)
+	signal.Notify(hupCh, syscall.SIGHUP)
+	defer signal.Stop(hupCh)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hupCh:
+				if err := tlsReloader.Reload(time.Now()); err != nil {
+					slog.Error("reload inbound SMTP TLS certificate", "err", err)
+					continue
+				}
+				slog.Info("inbound SMTP TLS certificate reloaded")
+			}
+		}
+	}()
 	if err := api.ValidateACMEChallengeDir(cfg.ACMEChallengeDir); err != nil {
 		slog.Error("configure ACME HTTP-01 challenge", "err", err)
 		os.Exit(1)
@@ -144,7 +161,7 @@ func main() {
 			return store.ResolveLocalAccountID(ctx, db, recipient)
 		},
 		CheckStorage: capacity.CheckPayload,
-		TLSConfig:    tlsConfig,
+		TLSConfig:    tlsReloader.TLSConfig(),
 	})
 
 	var outRelay *relay.Relay
@@ -258,7 +275,7 @@ func runCheckConfig() {
 		fmt.Fprintf(os.Stderr, "configuration invalid: %v\n", err)
 		os.Exit(1)
 	}
-	if _, err := smtpserver.LoadTLSConfig(cfg.SMTPTLSCert, cfg.SMTPTLSKey, cfg.SMTPDomain, time.Now()); err != nil {
+	if _, err := smtpserver.NewCertificateReloader(cfg.SMTPTLSCert, cfg.SMTPTLSKey, cfg.SMTPDomain, time.Now()); err != nil {
 		fmt.Fprintf(os.Stderr, "configuration invalid: %v\n", err)
 		os.Exit(1)
 	}

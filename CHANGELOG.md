@@ -19,7 +19,8 @@ This project adheres to Semantic Versioning.
   certificate/key pair. Startup and `check-config` fail closed on unreadable,
   invalid, expired, not-yet-valid or hostname-mismatched material; TLS 1.2 is
   the minimum. Plaintext MX delivery remains available and `REQUIRETLS` is not
-  advertised.
+  advertised. `SIGHUP` validates and atomically activates renewed material for
+  new handshakes; a failed reload leaves the last good certificate active.
 - A bounded public HTTP-01 handler serves only strictly named regular token
   files from a required root-managed read-only directory. This permits
   dedicated SMTP-certificate webroot renewal without exposing a shared nginx

@@ -1,6 +1,7 @@
 package smtpserver_test
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -8,6 +9,8 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
+	"fmt"
 	"math/big"
 	"net"
 	"net/smtp"
@@ -15,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,6 +66,106 @@ func TestLoadTLSConfigDoesNotLeakPaths(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), secretPath) {
 		t.Fatalf("error leaked configured path: %v", err)
+	}
+}
+
+func TestCertificateReloaderActivatesOnlyValidatedReplacements(t *testing.T) {
+	now := time.Now().UTC()
+	certPath, keyPath, _ := writeTLSFixture(t, "mail.example.com", now.Add(-time.Hour), now.Add(time.Hour))
+	reloader, err := smtpserver.NewCertificateReloader(certPath, keyPath, "mail.example.com", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsConfig := reloader.TLSConfig()
+	if tlsConfig.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("MinVersion = %d, want TLS 1.2", tlsConfig.MinVersion)
+	}
+	initial, err := handshakeCertificate(tlsConfig)
+	if err != nil {
+		t.Fatalf("initial handshake: %v", err)
+	}
+
+	replacementCert, replacementKey, _ := writeTLSFixture(t, "mail.example.com", now.Add(-time.Hour), now.Add(2*time.Hour))
+	replacement := readCertificateDER(t, replacementCert)
+	replaceTLSFiles(t, certPath, keyPath, replacementCert, replacementKey)
+	if err := reloader.Reload(now); err != nil {
+		t.Fatalf("reload valid replacement: %v", err)
+	}
+	got, err := handshakeCertificate(tlsConfig)
+	if err != nil {
+		t.Fatalf("replacement handshake: %v", err)
+	}
+	if !bytes.Equal(got, replacement) || bytes.Equal(got, initial) {
+		t.Fatal("new handshakes did not receive the validated replacement certificate")
+	}
+
+	_, mismatchedKey, _ := writeTLSFixture(t, "mail.example.com", now.Add(-time.Hour), now.Add(2*time.Hour))
+	replaceTLSFiles(t, certPath, keyPath, replacementCert, mismatchedKey)
+	if err := reloader.Reload(now); err == nil {
+		t.Fatal("Reload() accepted a mismatched private key")
+	}
+	assertHandshakeCertificate(t, tlsConfig, replacement)
+
+	expiredCert, expiredKey, _ := writeTLSFixture(t, "mail.example.com", now.Add(-2*time.Hour), now.Add(-time.Hour))
+	replaceTLSFiles(t, certPath, keyPath, expiredCert, expiredKey)
+	if err := reloader.Reload(now); err == nil {
+		t.Fatal("Reload() accepted an expired certificate")
+	}
+	assertHandshakeCertificate(t, tlsConfig, replacement)
+}
+
+func TestCertificateReloaderConcurrentHandshakes(t *testing.T) {
+	now := time.Now().UTC()
+	certPath, keyPath, _ := writeTLSFixture(t, "mail.example.com", now.Add(-time.Hour), now.Add(time.Hour))
+	otherCert, otherKey, _ := writeTLSFixture(t, "mail.example.com", now.Add(-time.Hour), now.Add(2*time.Hour))
+	firstCertPEM, firstKeyPEM := readTLSFiles(t, certPath, keyPath)
+	otherCertPEM, otherKeyPEM := readTLSFiles(t, otherCert, otherKey)
+	firstDER := readCertificateDER(t, certPath)
+	otherDER := readCertificateDER(t, otherCert)
+
+	reloader, err := smtpserver.NewCertificateReloader(certPath, keyPath, "mail.example.com", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsConfig := reloader.TLSConfig()
+	errCh := make(chan error, 64)
+	var wg sync.WaitGroup
+	for worker := 0; worker < 4; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 12; i++ {
+				got, handshakeErr := handshakeCertificate(tlsConfig)
+				if handshakeErr != nil {
+					errCh <- handshakeErr
+					return
+				}
+				if !bytes.Equal(got, firstDER) && !bytes.Equal(got, otherDER) {
+					errCh <- errors.New("handshake received an unknown certificate")
+					return
+				}
+			}
+		}()
+	}
+	for i := 0; i < 12; i++ {
+		certPEM, keyPEM := firstCertPEM, firstKeyPEM
+		if i%2 == 0 {
+			certPEM, keyPEM = otherCertPEM, otherKeyPEM
+		}
+		if err := os.WriteFile(certPath, certPEM, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := reloader.Reload(now); err != nil {
+			t.Fatalf("Reload() iteration %d: %v", i, err)
+		}
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
 	}
 }
 
@@ -199,6 +303,86 @@ func sendWithClient(client *smtp.Client, subject string) error {
 		return err
 	}
 	return writer.Close()
+}
+
+func handshakeCertificate(cfg *tls.Config) ([]byte, error) {
+	serverConn, clientConn := net.Pipe()
+	deadline := time.Now().Add(3 * time.Second)
+	_ = serverConn.SetDeadline(deadline)
+	_ = clientConn.SetDeadline(deadline)
+	server := tls.Server(serverConn, cfg)
+	client := tls.Client(clientConn, &tls.Config{ // #nosec G402 -- isolated test fixture
+		InsecureSkipVerify: true,
+		MinVersion:         tls.VersionTLS12,
+	})
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- server.Handshake()
+	}()
+	if err := client.Handshake(); err != nil {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+		<-serverErr
+		return nil, err
+	}
+	state := client.ConnectionState()
+	_ = clientConn.Close()
+	_ = serverConn.Close()
+	if err := <-serverErr; err != nil {
+		return nil, err
+	}
+	if len(state.PeerCertificates) != 1 {
+		return nil, fmt.Errorf("peer certificate count = %d, want 1", len(state.PeerCertificates))
+	}
+	return append([]byte(nil), state.PeerCertificates[0].Raw...), nil
+}
+
+func assertHandshakeCertificate(t *testing.T, cfg *tls.Config, want []byte) {
+	t.Helper()
+	got, err := handshakeCertificate(cfg)
+	if err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("failed reload displaced the last good certificate")
+	}
+}
+
+func readCertificateDER(t *testing.T, path string) []byte {
+	t.Helper()
+	pemBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatal("test certificate PEM is invalid")
+	}
+	return append([]byte(nil), block.Bytes...)
+}
+
+func readTLSFiles(t *testing.T, certPath, keyPath string) ([]byte, []byte) {
+	t.Helper()
+	certPEM, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return certPEM, keyPEM
+}
+
+func replaceTLSFiles(t *testing.T, certPath, keyPath, sourceCert, sourceKey string) {
+	t.Helper()
+	certPEM, keyPEM := readTLSFiles(t, sourceCert, sourceKey)
+	if err := os.WriteFile(certPath, certPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeTLSFixture(t *testing.T, dnsName string, notBefore, notAfter time.Time) (string, string, *x509.CertPool) {

@@ -302,6 +302,10 @@ certificate/key pair is required for server startup and `comstac check-config`
 verifies that it is readable, currently valid and covers
 `COMSTAC_SMTP_DOMAIN`. Plaintext public-MX delivery remains accepted when a
 sender does not negotiate STARTTLS; Comstac does not advertise `REQUIRETLS`.
+After atomically installing a renewed certificate/key pair, send Comstac
+`SIGHUP` to reload it without a service restart. The replacement is validated
+before activation; a bad or incomplete pair is rejected and the last good
+in-memory certificate remains active for new handshakes.
 The public HTTP-01 endpoint serves only strictly named, bounded regular files
 from `COMSTAC_ACME_CHALLENGE_DIR`, allowing webroot renewal through an existing
 reverse proxy without granting Comstac write access or private-key authority.
