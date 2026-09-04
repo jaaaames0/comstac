@@ -12,6 +12,7 @@ import (
 	"time"
 
 	authpkg "comstac/internal/auth"
+	"comstac/internal/securitymetrics"
 	"comstac/internal/store"
 )
 
@@ -65,7 +66,10 @@ func TestLoginClientKeyTrustsRealIPOnlyFromLoopback(t *testing.T) {
 func TestLoginLimiterIsSharedAcrossHTMLAndAPIRoutes(t *testing.T) {
 	db := openLoginLimiterTestDB(t)
 	authMgr := bootstrapLoginLimiterAuth(t, db)
-	handler := New("127.0.0.1:8080", db, authMgr, nil, nil, nil).Handler()
+	var counters securitymetrics.Counters
+	srv := New("127.0.0.1:8080", db, authMgr, nil, nil, nil)
+	srv.SetSecurityCounters(&counters)
+	handler := srv.Handler()
 
 	for i := 0; i < loginFailureLimit; i++ {
 		path := "/login"
@@ -93,6 +97,26 @@ func TestLoginLimiterIsSharedAcrossHTMLAndAPIRoutes(t *testing.T) {
 		if resp.Code != want {
 			t.Fatalf("attempt %d status=%d body=%q want=%d", i+1, resp.Code, resp.Body.String(), want)
 		}
+	}
+
+	got := counters.Snapshot()
+	if got.LoginFailures != loginFailureLimit || got.LoginRateLimitRejections != 1 {
+		t.Fatalf("security counters after failures = %+v", got)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/login",
+		strings.NewReader("username=admin&password=wrong-password"))
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("X-Real-IP", "203.0.113.10")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("blocked attempt status=%d body=%q", resp.Code, resp.Body.String())
+	}
+	got = counters.Snapshot()
+	if got.LoginFailures != loginFailureLimit || got.LoginRateLimitRejections != 2 {
+		t.Fatalf("security counters after blocked attempt = %+v", got)
 	}
 }
 

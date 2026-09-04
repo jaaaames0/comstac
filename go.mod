@@ -11,6 +11,7 @@ require (
 	github.com/emersion/go-smtp v0.24.0
 	golang.org/x/crypto v0.56.0
 	golang.org/x/net v0.57.0
+	golang.org/x/term v0.45.0
 	modernc.org/sqlite v1.48.1
 )
 

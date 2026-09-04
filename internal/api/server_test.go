@@ -17,6 +17,7 @@ import (
 	"comstac/internal/api"
 	authpkg "comstac/internal/auth"
 	"comstac/internal/ingest"
+	"comstac/internal/securitymetrics"
 	"comstac/internal/storageguard"
 	"comstac/internal/store"
 )
@@ -84,6 +85,13 @@ func TestMetricsIncludesStorageCapacity(t *testing.T) {
 	}
 	srv := api.New(":0", db, authMgr, nil, nil, nil)
 	srv.SetStorageGuard(guard)
+	var counters securitymetrics.Counters
+	counters.RecordLoginFailure()
+	counters.RecordLoginRateLimitRejection()
+	counters.RecordSMTPTemporaryRejection()
+	counters.RecordSMTPSaturationRejection()
+	counters.RecordNotificationDrop()
+	srv.SetSecurityCounters(&counters)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 
@@ -102,6 +110,11 @@ func TestMetricsIncludesStorageCapacity(t *testing.T) {
 		StorageMinFreeBytes  int64 `json:"storage_min_free_bytes"`
 		StorageWarnFreeBytes int64 `json:"storage_warn_free_bytes"`
 		StorageRejections    int64 `json:"storage_rejections_total"`
+		LoginFailures        int64 `json:"login_failures_total"`
+		LoginRateLimits      int64 `json:"login_rate_limit_rejections_total"`
+		SMTPTemporary        int64 `json:"smtp_temporary_rejections_total"`
+		SMTPSaturation       int64 `json:"smtp_saturation_rejections_total"`
+		NotificationDrops    int64 `json:"notification_drops_total"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&metrics); err != nil {
 		t.Fatal(err)
@@ -111,6 +124,10 @@ func TestMetricsIncludesStorageCapacity(t *testing.T) {
 	}
 	if metrics.StorageRejections != 0 {
 		t.Fatalf("storage rejections = %d, want 0", metrics.StorageRejections)
+	}
+	if metrics.LoginFailures != 1 || metrics.LoginRateLimits != 1 ||
+		metrics.SMTPTemporary != 2 || metrics.SMTPSaturation != 1 || metrics.NotificationDrops != 1 {
+		t.Fatalf("unexpected security metrics: %+v", metrics)
 	}
 }
 

@@ -13,6 +13,13 @@ This project adheres to Semantic Versioning.
   exact mailbox addresses whose messages may load HTTPS images automatically.
   Preferences are stored in SQLite rather than configuration, and a compact
   per-message `load images` action remains available for every other sender.
+- **Password rotation command**: `comstac rotate-password` reads a confirmed
+  password from an interactive terminal, atomically replaces the selected
+  user's bcrypt hash and revokes all of that user's sessions.
+- **Sanitized security counters**: authenticated `/metrics` includes fixed,
+  process-local totals for login failures, rate-limit rejections, temporary
+  SMTP rejections, SMTP saturation and dropped notifications, without dynamic
+  labels or message/user data.
 
 ### Security
 - Inbound SMTP now advertises opportunistic STARTTLS using a required dedicated
@@ -45,6 +52,9 @@ This project adheres to Semantic Versioning.
 - Session-cookie deletion now retains the same `Secure`, `HttpOnly`, path and
   `SameSite=Lax` boundary as creation. Dynamic error fragments use
   `html/template`, and OAuth failures no longer echo provider/internal errors.
+- Browser-facing error messages that can originate on variable failure paths
+  now use a shared `html/template` renderer; account creation no longer reflects
+  internal SQLite errors to the response.
 - Explicit storage watermarks now protect shared-host capacity: every connection in the bounded SQLite pool receives a hard page ceiling and busy timeout, SMTP and IMAP ingestion check total Comstac state plus reserved free space, SMTP returns a retryable `452` when capacity is unavailable, `/healthz` warns before rejection, and authenticated metrics expose only non-secret capacity counters.
 - Server startup now fails closed unless listener addresses, absolute database path, admin credentials, independent CSRF secret, SMTP hostname and local recipient allowlists are explicitly configured and valid. HTTP must bind to loopback; partially configured relay, IMAP OAuth, browser OAuth and VAPID groups are rejected.
 - `/login` and `/api/login` share an in-process failed-attempt limiter with sanitized event logging, `429 Too Many Requests` and `Retry-After`; the API route can no longer bypass protection intended only for the HTML route.
@@ -61,6 +71,11 @@ This project adheres to Semantic Versioning.
   JWT dependency were advanced to their mutually compatible fixed releases;
   `govulncheck` reports zero reachable and zero imported-package
   vulnerabilities.
+
+### Removed
+- The superseded `comstac backup` command, its SCP/private-key configuration
+  surface and its Makefile targets. Production recovery is owned by an
+  independent encrypted, retention-bounded and restore-tested backup service.
 
 ## [0.9.3] - 2026-04-17
 ### Security

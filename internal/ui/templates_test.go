@@ -2,6 +2,8 @@ package ui
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -73,6 +75,22 @@ func TestMessageDetailRemoteImageControlAndTemplateEscaping(t *testing.T) {
 	execute(&rendered, "send_error", sendErrorData{Msg: `<img src=x onerror=alert(1)>`})
 	if strings.Contains(rendered.String(), `<img src=x`) || !strings.Contains(rendered.String(), "&lt;img") {
 		t.Fatalf("error output was not escaped: %s", rendered.String())
+	}
+}
+
+func TestBrowserErrorRendererEscapesMessageAndPreservesStatus(t *testing.T) {
+	resp := httptest.NewRecorder()
+	renderUIError(resp, http.StatusBadRequest, `<img src=x onerror=alert(1)>`)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", resp.Code)
+	}
+	if got := resp.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Fatalf("content type = %q", got)
+	}
+	html := resp.Body.String()
+	if strings.Contains(html, `<img src=x`) || !strings.Contains(html, "&lt;img") {
+		t.Fatalf("error output was not escaped: %s", html)
 	}
 }
 

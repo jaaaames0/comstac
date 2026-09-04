@@ -19,7 +19,7 @@ A self-hosted, single-user mail client in a single Go binary. Receives local-dom
 - **Snooze, archive, spam-flag** actions with optional IMAP write-back
 - **Keyboard shortcuts** — `j`/`k` navigation, `r` reply, `e` trash, `u` unread, `c` compose, `Escape` back
 - **Mobile layout** — swipe-to-trash, push-pattern navigation, two-row topbar
-- **Automated backup** — SQLite snapshot via `comstac backup`, with optional remote SCP and daily systemd timer
+- **External recovery integration** — SQLite remains compatible with independently managed, encrypted and restore-tested backups
 
 ## Design
 
@@ -199,10 +199,10 @@ Once configured, a subscription toggle appears on the Accounts page in the UI.
 
 ## Backup
 
-The bundled `comstac backup` command is a legacy local-snapshot helper, not a
-complete production recovery design. It does not provide encryption or a
-verified remote-host identity boundary. The Makefile therefore refuses to
-install its former timer or invoke it against a live binary.
+Comstac does not include a backup command or timer. The former unencrypted
+local/SCP helper was removed after it was superseded by the production backup
+service, eliminating dormant command execution and private-key configuration
+from the application.
 
 For production, use an independently reviewed backup service that takes a
 consistent SQLite snapshot, encrypts before persistence or transfer, pins the
@@ -244,6 +244,20 @@ unsafe.
 | `COMSTAC_SESSION_TTL_HOURS` | `24` | Session lifetime |
 | `COMSTAC_CSRF_SECRET` | Required | Independent HMAC key of at least 32 characters (`openssl rand -hex 32`) |
 
+Rotate an existing user's password from an interactive terminal with the same
+OS identity that owns the database:
+
+```bash
+sudo -u comstac /path/to/comstac rotate-password \
+  --database /var/lib/comstac/comstac.db --username operator
+```
+
+The command prompts twice without echo, requires a 12–72 byte password, updates
+the bcrypt hash and revokes all of that user's sessions in one SQLite
+transaction. Never put the password in an argument or environment variable.
+`COMSTAC_ADMIN_PASSWORD` remains startup bootstrap configuration; after the
+user exists it does not overwrite a rotated database credential.
+
 ### Outbound relay
 
 | Variable | Default | Description |
@@ -283,19 +297,14 @@ unsafe.
 | `COMSTAC_OAUTH_CLIENT_ID` | Web Application OAuth2 client ID |
 | `COMSTAC_OAUTH_CLIENT_SECRET` | Web Application OAuth2 client secret |
 
-### Backup (optional)
-
-| Variable | Default | Description |
-|---|---|---|
-| `COMSTAC_BACKUP_DIR` | `/var/lib/comstac/backups` | Local snapshot directory |
-| `COMSTAC_BACKUP_DEST` | — | Legacy SCP destination; not recommended for production |
-| `COMSTAC_BACKUP_KEY` | — | Legacy SSH private key path; not recommended for production |
-| `COMSTAC_BACKUP_RETAIN` | `7` | Number of local snapshots to keep |
-
 The long-running server checks total state and free filesystem capacity before
 persisting SMTP or IMAP messages. SQLite also receives the hard page ceiling on
 every connection. `/healthz` becomes non-green before the hard watermark and
 authenticated `/metrics` reports the storage state and rejection count.
+It also reports fixed process-local totals for login failures, login rate-limit
+rejections, temporary SMTP rejections, the saturation subset of those SMTP
+rejections, and dropped notifications. These counters reset at restart and
+carry no addresses, message data, paths or caller-controlled labels.
 
 Inbound SMTP advertises opportunistic STARTTLS with TLS 1.2 or newer. The
 certificate/key pair is required for server startup and `comstac check-config`

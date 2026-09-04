@@ -139,6 +139,10 @@ type indexData struct {
 	IMAPAuthFailed bool // true when the IMAP token source has an active invalid_grant error
 }
 
+type errorData struct {
+	Msg string
+}
+
 type messageListData struct {
 	Items        []store.MessageListItem
 	ShowSource   bool

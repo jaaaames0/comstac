@@ -106,7 +106,7 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 
 ## Milestones
 1. Split inbox by stream — sidebar tabs `SMTP` and `Gmail` filtering by source. ✓
-2. Backup/restore — automated SQLite snapshot via systemd timer, SCP to configurable remote host. ✓
+2. Backup/restore — independent encrypted daily snapshot service with bounded retention and isolated restore validation; the superseded bundled local/SCP helper has been removed. ✓
 3. Spam flag — `spam` boolean on messages, `Mark Spam/Not Spam` UI, auto-flag on SPF+DKIM dual failure. ✓
 4. Naive Bayes spam filter — deferred; only needed if spam becomes a problem on this private domain.
 5. Better reconciliation semantics for upstream folder/state sync — deferred to Phase 8.
@@ -153,26 +153,6 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 ## Exit Criteria
 - UI feels polished and intentional on both desktop and mobile; push notifications work on Android and desktop. ✓ (iOS PWA push requires Safari 16.4+ — not validated but architecture supports it)
 
-## Phase 9: UI + Aesthetics + Mobile (`0.9.x`)
-## Objectives
-- Make the interface genuinely pleasant to use daily, including on mobile.
-
-## Milestones
-1. Visual overhaul: typography, spacing, colour, panel proportions. ✓ (`0.9.0`)
-2. Dark design system with jade-green accent, command/filter bar, 2-pane workspace. ✓ (`0.9.0`)
-3. Independent filter × stream selection; selected-row highlight; smart reading-pane clearing. ✓ (`0.9.0`)
-4. Gmail-style expanding timestamps in local timezone. ✓ (`0.9.0`)
-5. **Mobile layout**: push pattern — single-column on portrait, list slides out and detail slides in on tap; back button returns to list. ✓ (`0.9.1`)
-6. **Mobile topbar**: two-row topbar (brand + filter nav); search and compose stay visible; back button shares brand area. ✓ (`0.9.1`)
-7. **Swipe to trash/restore on mobile**: swipe gesture on list rows replaces invisible hover button. ✓ (`0.9.1`)
-8. **Web-based Gmail re-authorization**: `/ui/oauth/start` + `/ui/oauth/callback` with IMAP auth failure detection and in-app notification. ✓ (`0.9.1`)
-9. **Push notifications**: Web Push (VAPID) via service worker — subscribe on mobile, trigger on inbound SMTP/IMAP ingest. ✓ (`0.9.2`, production-validated on Android + desktop Chrome)
-10. CC/BCC fields styled properly in the new design (currently plain `<details>` toggle). (low priority — may ship as-is)
-11. Inline CID image support in HTML emails (replace `cid:` refs with base64 data URIs). (low priority)
-
-## Exit Criteria
-- UI feels polished and intentional on both desktop and mobile; push notifications work on Android and desktop. ✓ (iOS PWA push requires Safari 16.4+ — not validated but architecture supports it)
-
 ## Phase 10: v1.0.0
 ## Objectives
 - Production-grade single-user release. Exit criterion: comstac is the primary daily driver for all inbound and outbound mail.
@@ -193,3 +173,28 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 - VPS provider outbound port constraints reinforce relay-first strategy.
 - Provider-specific IMAP behavior may require adapter abstractions.
 - Deliverability quality depends on phased anti-spam maturity.
+
+## Possible Future Security Hardening (Evidence-Triggered)
+
+The current security-hardening program is complete. The items below are
+deliberately deferred: they are neither known active vulnerabilities nor
+release commitments. Promote one only when monitoring, a changed threat model
+or a concrete incident shows that its security gain justifies its operational
+complexity, and deploy each production boundary as its own guarded transaction.
+
+1. UID-based outbound egress filtering after every required destination,
+   resolver path and independent rollback has been proven.
+2. An AppArmor profile if filesystem or execution controls demonstrate
+   meaningful protection beyond the existing systemd sandbox.
+3. Stronger inbound mail-authentication alignment evaluation (SPF, DKIM and
+   DMARC) before treating authentication results as more than observations.
+4. MTA-STS and TLS reporting after operational ownership of DNS, policy hosting
+   and report handling is established.
+5. More generic public SMTP recipient-response wording if address enumeration
+   becomes a demonstrated concern.
+6. A duplicate nginx exact-location throttle for `/api/login` where deployment
+   configuration does not already match Comstac's shared in-process limiter.
+7. Broader protocol fuzzing and end-to-end integration tests as maintenance
+   capacity permits.
+8. Moving Comstac to a separate VM or host if future exposure, tenant count or
+   privilege requirements invalidate the present shared-host threat model.

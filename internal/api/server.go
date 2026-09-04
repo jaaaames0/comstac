@@ -19,6 +19,7 @@ import (
 	authpkg "comstac/internal/auth"
 	"comstac/internal/push"
 	"comstac/internal/relay"
+	"comstac/internal/securitymetrics"
 	"comstac/internal/storageguard"
 	"comstac/internal/store"
 	"comstac/internal/ui"
@@ -34,6 +35,7 @@ type Server struct {
 	startedAt    time.Time
 	reqCount     atomic.Int64
 	loginLimiter *loginLimiter
+	security     *securitymetrics.Counters
 	storage      *storageguard.Guard
 	acmeDir      string
 }
@@ -41,6 +43,12 @@ type Server struct {
 // SetStorageGuard exposes storage warning state to health and metrics.
 func (s *Server) SetStorageGuard(g *storageguard.Guard) {
 	s.storage = g
+}
+
+// SetSecurityCounters exposes fixed process-local security counters through
+// the already authenticated metrics endpoint.
+func (s *Server) SetSecurityCounters(counters *securitymetrics.Counters) {
+	s.security = counters
 }
 
 // SetACMEChallengeDir enables the bounded public HTTP-01 token endpoint.
@@ -365,6 +373,11 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		StorageWarning        bool  `json:"storage_warning"`
 		StorageRejecting      bool  `json:"storage_rejecting"`
 		StorageRejections     int64 `json:"storage_rejections_total"`
+		LoginFailures         int64 `json:"login_failures_total"`
+		LoginRateLimited      int64 `json:"login_rate_limit_rejections_total"`
+		SMTPTemporaryRejected int64 `json:"smtp_temporary_rejections_total"`
+		SMTPSaturation        int64 `json:"smtp_saturation_rejections_total"`
+		NotificationDrops     int64 `json:"notification_drops_total"`
 	}
 	m := metrics{
 		UptimeSeconds: int64(time.Since(s.startedAt).Seconds()),
@@ -388,6 +401,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 			m.StorageRejections = snapshot.Rejections
 		}
 	}
+	securitySnapshot := s.security.Snapshot()
+	m.LoginFailures = securitySnapshot.LoginFailures
+	m.LoginRateLimited = securitySnapshot.LoginRateLimitRejections
+	m.SMTPTemporaryRejected = securitySnapshot.SMTPTemporaryRejections
+	m.SMTPSaturation = securitySnapshot.SMTPSaturationRejections
+	m.NotificationDrops = securitySnapshot.NotificationDrops
 	writeJSON(w, http.StatusOK, m)
 }
 
@@ -459,6 +478,7 @@ func (s *Server) handleAPILogin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) login(r *http.Request, username, password string) (string, time.Time, time.Duration, error) {
 	key := loginClientKey(r)
 	if allowed, retryAfter := s.loginLimiter.allow(key); !allowed {
+		s.security.RecordLoginRateLimitRejection()
 		slog.Warn("login rate limited", "component", "auth", "client", key, "path", r.URL.Path)
 		return "", time.Time{}, retryAfter, authpkg.ErrInvalidCredentials
 	}
@@ -469,9 +489,11 @@ func (s *Server) login(r *http.Request, username, password string) (string, time
 		return token, expires, 0, nil
 	}
 	if errors.Is(err, authpkg.ErrInvalidCredentials) {
+		s.security.RecordLoginFailure()
 		blocked, retryAfter := s.loginLimiter.failure(key)
 		slog.Warn("login authentication failed", "component", "auth", "client", key, "path", r.URL.Path, "blocked", blocked)
 		if blocked {
+			s.security.RecordLoginRateLimitRejection()
 			return "", time.Time{}, retryAfter, err
 		}
 	}

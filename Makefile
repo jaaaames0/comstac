@@ -1,6 +1,6 @@
 APP=comstac
 
-.PHONY: run build test test-api test-smtp test-store fmt install install-timer uninstall backup
+.PHONY: run build test test-api test-smtp test-store fmt install uninstall
 
 run:
 	go run ./cmd/comstac
@@ -25,14 +25,6 @@ fmt:
 
 install:
 	@echo "Refusing in-place install: build and deploy a new immutable versioned release under guarded rollback."
-	@false
-
-install-timer:
-	@echo "Refusing legacy timer install: use a reviewed encrypted backup service with restore-test evidence."
-	@false
-
-backup:
-	@echo "Refusing legacy backup helper: use a reviewed encrypted and restore-tested backup service."
 	@false
 
 uninstall:

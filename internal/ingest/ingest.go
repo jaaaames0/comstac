@@ -12,6 +12,7 @@ import (
 	"net/mail"
 	"strings"
 
+	"comstac/internal/securitymetrics"
 	"comstac/internal/storageguard"
 	"comstac/internal/store"
 	"comstac/internal/validation"
@@ -55,6 +56,7 @@ type MailNotifier interface {
 type Service struct {
 	db       *sql.DB
 	notifier MailNotifier
+	security *securitymetrics.Counters
 	storage  *storageguard.Guard
 }
 
@@ -65,6 +67,12 @@ func NewService(db *sql.DB) *Service {
 // SetNotifier attaches a push notification backend to the ingest service.
 func (s *Service) SetNotifier(n MailNotifier) {
 	s.notifier = n
+}
+
+// SetSecurityCounters records notification queue drops without retaining
+// message or sender data.
+func (s *Service) SetSecurityCounters(counters *securitymetrics.Counters) {
+	s.security = counters
 }
 
 // SetStorageGuard attaches the shared-filesystem capacity policy.
@@ -129,6 +137,7 @@ func (s *Service) IngestRaw(ctx context.Context, in IngestInput) error {
 
 	if s.notifier != nil {
 		if queued := s.notifier.QueueNewMail(subject, fromAddr, messageID); !queued {
+			s.security.RecordNotificationDrop()
 			slog.Warn("push notification dropped", "component", "ingest", "reason", "queue full", "message_id", messageID)
 		}
 	}

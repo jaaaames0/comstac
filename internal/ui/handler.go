@@ -70,7 +70,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 
 		opts, err := parseListOpts(req)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			renderUIError(w, http.StatusBadRequest, "invalid message filters")
 			return
 		}
 		items, err := store.ListMessages(req.Context(), db, opts)
@@ -142,7 +142,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 					return
 				}
 				if _, err := store.CreateLocalAccount(req.Context(), db, email, name); err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest)
+					renderUIError(w, http.StatusBadRequest, "unable to create account")
 					return
 				}
 			default:
@@ -391,7 +391,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		q := strings.TrimSpace(req.URL.Query().Get("q"))
 		if q == "" {
-			fmt.Fprintf(w, `<div class="list-wrap"><p style="color:var(--muted);padding:10px">Enter a search term.</p></div>`)
+			execute(w, "search_error", errorData{Msg: "Enter a search term."})
 			return
 		}
 		if db == nil {
@@ -571,6 +571,14 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 	if oauth != nil && oauth.ClientID != "" && oauth.ClientSecret != "" && oauth.BaseURL != "" {
 		registerOAuthRoutes(mux, oauth)
 	}
+}
+
+// renderUIError writes browser-facing errors through html/template so future
+// messages cannot accidentally turn caller-controlled text into markup.
+func renderUIError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	execute(w, "error", errorData{Msg: message})
 }
 
 func remoteImagesAllowed(ctx context.Context, db *sql.DB, fromHeader string, explicitlyRequested bool) bool {

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"comstac/internal/securitymetrics"
 )
 
 func TestNormalizeOptionsAppliesResourceBounds(t *testing.T) {
@@ -27,7 +29,8 @@ func TestLimitedListenerRejectsExcessConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	limited := newLimitedListener(ln, 1)
+	var counters securitymetrics.Counters
+	limited := newLimitedListener(ln, 1, &counters)
 	defer limited.Close()
 
 	accepted := make(chan net.Conn, 1)
@@ -64,23 +67,33 @@ func TestLimitedListenerRejectsExcessConnection(t *testing.T) {
 	if !strings.HasPrefix(line, "421 ") {
 		t.Fatalf("rejection = %q", line)
 	}
+	got := counters.Snapshot()
+	if got.SMTPTemporaryRejections != 1 || got.SMTPSaturationRejections != 1 {
+		t.Fatalf("security counters = %+v", got)
+	}
 }
 
 func TestDataReturnsTemporaryFailureWhenWorkersAreSaturated(t *testing.T) {
+	var counters securitymetrics.Counters
 	slots := make(chan struct{}, 1)
 	slots <- struct{}{}
 	s := &session{
 		envelopeTo: []string{"mail@example.com"},
 		dataSlots:  slots,
-		opts:       Options{DataTimeout: time.Second},
+		opts:       Options{DataTimeout: time.Second, SecurityCounters: &counters},
 	}
 	err := s.Data(strings.NewReader("Subject: test\r\n\r\nbody\r\n"))
 	if err == nil || !strings.Contains(err.Error(), "451") {
 		t.Fatalf("Data() error = %v, want SMTP 451", err)
 	}
+	got := counters.Snapshot()
+	if got.SMTPTemporaryRejections != 1 || got.SMTPSaturationRejections != 1 {
+		t.Fatalf("security counters = %+v", got)
+	}
 }
 
 func TestDataReturnsTemporaryFailureWhenStorageIsUnavailable(t *testing.T) {
+	var counters securitymetrics.Counters
 	s := &session{
 		envelopeTo: []string{"mail@example.com"},
 		dataSlots:  make(chan struct{}, 1),
@@ -90,10 +103,15 @@ func TestDataReturnsTemporaryFailureWhenStorageIsUnavailable(t *testing.T) {
 			CheckStorage: func(int64) error {
 				return errors.New("unavailable")
 			},
+			SecurityCounters: &counters,
 		},
 	}
 	err := s.Data(strings.NewReader("Subject: test\r\n\r\nbody\r\n"))
 	if err == nil || !strings.Contains(err.Error(), "452") {
 		t.Fatalf("Data() error = %v, want SMTP 452", err)
+	}
+	got := counters.Snapshot()
+	if got.SMTPTemporaryRejections != 1 || got.SMTPSaturationRejections != 0 {
+		t.Fatalf("security counters = %+v", got)
 	}
 }

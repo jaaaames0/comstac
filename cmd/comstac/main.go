@@ -21,6 +21,7 @@ import (
 	"comstac/internal/ingest"
 	"comstac/internal/push"
 	"comstac/internal/relay"
+	"comstac/internal/securitymetrics"
 	"comstac/internal/smtpserver"
 	"comstac/internal/storageguard"
 	"comstac/internal/store"
@@ -36,8 +37,11 @@ func main() {
 		case "authorize":
 			runAuthorize()
 			return
-		case "backup":
-			runBackup()
+		case "rotate-password":
+			if err := runRotatePassword(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "password rotation failed: %v\n", err)
+				os.Exit(1)
+			}
 			return
 		case "vapid":
 			runVAPID()
@@ -45,6 +49,9 @@ func main() {
 		case "check-config":
 			runCheckConfig()
 			return
+		default:
+			fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
+			os.Exit(2)
 		}
 	}
 
@@ -129,7 +136,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	securityCounters := &securitymetrics.Counters{}
 	ingestor := ingest.NewService(db)
+	ingestor.SetSecurityCounters(securityCounters)
 	ingestor.SetStorageGuard(capacity)
 
 	var agentClients *push.AgentClients
@@ -160,8 +169,9 @@ func main() {
 		ResolveAccountID: func(ctx context.Context, recipient string) (sql.NullInt64, error) {
 			return store.ResolveLocalAccountID(ctx, db, recipient)
 		},
-		CheckStorage: capacity.CheckPayload,
-		TLSConfig:    tlsReloader.TLSConfig(),
+		CheckStorage:     capacity.CheckPayload,
+		TLSConfig:        tlsReloader.TLSConfig(),
+		SecurityCounters: securityCounters,
 	})
 
 	var outRelay *relay.Relay
@@ -231,6 +241,7 @@ func main() {
 	}
 
 	apiSrv := api.New(cfg.HTTPAddr, db, authMgr, outRelay, oauthCfg, agentClients)
+	apiSrv.SetSecurityCounters(securityCounters)
 	apiSrv.SetStorageGuard(capacity)
 	apiSrv.SetACMEChallengeDir(cfg.ACMEChallengeDir)
 

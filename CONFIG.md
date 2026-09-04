@@ -50,6 +50,18 @@ configured directory root-managed and read-only to the service.
 - `COMSTAC_SESSION_TTL_HOURS` (default `24`): session lifetime in hours.
 - `COMSTAC_CSRF_SECRET` (required): independent HMAC key for CSRF token generation, at least 32 characters.
 
+To rotate an existing password, run the deployed binary as the database owner
+from an interactive terminal:
+
+```bash
+sudo -u comstac /path/to/comstac rotate-password --database /var/lib/comstac/comstac.db --username operator
+```
+
+The new password is read twice without echo and is never accepted in an
+argument or environment variable. A successful update atomically revokes every
+session for that user. The bootstrap environment password does not overwrite an
+existing user's rotated database credential.
+
 ## Outbound SMTP Relay
 - `COMSTAC_RELAY_HOST` (default empty): Smart-host SMTP server hostname. Outbound sending is disabled if not set.
 - `COMSTAC_RELAY_PORT` (default `587`): Smart-host SMTP port.
@@ -84,16 +96,11 @@ The callback URI to register in Google Cloud Console is: `{COMSTAC_BASE_URL}/ui/
 Run `comstac authorize` (with CLIENT_ID and CLIENT_SECRET set) to complete the one-time OAuth2 flow and obtain a refresh token.
 
 ## Backup
-The bundled backup command is retained only as a legacy local-snapshot helper.
-It is not a production backup design and its former Makefile timer installation
-is disabled. Prefer an independently reviewed service that creates a consistent
-SQLite snapshot, encrypts before storage or transfer, pins remote identity and
-has a proven isolated restore.
-
-- `COMSTAC_BACKUP_DIR` (default `/var/lib/comstac/backups`): local directory for snapshot files.
-- `COMSTAC_BACKUP_DEST` (legacy; not recommended): remote SCP destination.
-- `COMSTAC_BACKUP_KEY` (legacy; not recommended): path to an SSH private key.
-- `COMSTAC_BACKUP_RETAIN` (default `7`): number of local snapshots to keep before pruning oldest.
+Comstac has no built-in backup command, backup environment variables or timer.
+Use an independently reviewed service that creates a consistent SQLite
+snapshot, encrypts before storage or transfer, pins remote identity and has a
+proven isolated restore. Keeping this outside Comstac avoids granting the mail
+process remote backup credentials or general command-execution responsibilities.
 
 Never restore over a running database. Validate a decrypted snapshot in
 disposable storage, then use a separate stopped-service restoration procedure

@@ -16,7 +16,15 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var ErrInvalidCredentials = errors.New("invalid credentials")
+var (
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrUserNotFound       = errors.New("user not found")
+)
+
+const (
+	MinimumPasswordBytes = 12
+	MaximumPasswordBytes = 72
+)
 
 type Manager struct {
 	db         *sql.DB
@@ -115,6 +123,50 @@ func (m *Manager) Login(ctx context.Context, username, password string) (string,
 		return "", time.Time{}, fmt.Errorf("insert session: %w", err)
 	}
 	return token, expires, nil
+}
+
+// RotatePassword atomically replaces one user's bcrypt hash and revokes every
+// session belonging to that user. The plaintext password is never persisted.
+func (m *Manager) RotatePassword(ctx context.Context, username string, password []byte) error {
+	if m == nil || m.db == nil {
+		return fmt.Errorf("auth manager not configured")
+	}
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return fmt.Errorf("username required")
+	}
+	if len(password) < MinimumPasswordBytes || len(password) > MaximumPasswordBytes {
+		return fmt.Errorf("password must be between %d and %d bytes", MinimumPasswordBytes, MaximumPasswordBytes)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword(password, bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin password rotation: %w", err)
+	}
+	defer tx.Rollback()
+
+	var userID int64
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE username = ?`, username).Scan(&userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrUserNotFound
+		}
+		return fmt.Errorf("select user for password rotation: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, string(hash), userID); err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
+		return fmt.Errorf("revoke sessions: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit password rotation: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) Logout(ctx context.Context, token string) error {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"comstac/internal/ingest"
+	"comstac/internal/securitymetrics"
 	"comstac/internal/storageguard"
 	gosmtp "github.com/emersion/go-smtp"
 )
@@ -31,6 +32,7 @@ type Options struct {
 	DataTimeout      time.Duration
 	CheckStorage     func(payloadBytes int64) error
 	TLSConfig        *tls.Config
+	SecurityCounters *securitymetrics.Counters
 }
 
 type Server struct {
@@ -50,7 +52,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	limited := newLimitedListener(ln, s.opts.MaxConnections)
+	limited := newLimitedListener(ln, s.opts.MaxConnections, s.opts.SecurityCounters)
 	return runWithContext(ctx, srv, func() error { return srv.Serve(limited) })
 }
 
@@ -58,7 +60,7 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) RunWithListener(ctx context.Context, ln net.Listener) error {
 	srv := s.newSMTPServer()
 	slog.Info("smtp listener starting", "component", "smtp", "addr", ln.Addr().String())
-	limited := newLimitedListener(ln, s.opts.MaxConnections)
+	limited := newLimitedListener(ln, s.opts.MaxConnections, s.opts.SecurityCounters)
 	return runWithContext(ctx, srv, func() error {
 		return srv.Serve(limited)
 	})
@@ -154,6 +156,7 @@ func (s *session) Data(r io.Reader) error {
 	case s.dataSlots <- struct{}{}:
 		defer func() { <-s.dataSlots }()
 	default:
+		s.opts.SecurityCounters.RecordSMTPSaturationRejection()
 		slog.Warn("smtp DATA temporarily rejected", "component", "smtp", "reason", "workers saturated")
 		return smtpError(451, "server temporarily busy")
 	}
@@ -162,6 +165,7 @@ func (s *session) Data(r io.Reader) error {
 	defer cancel()
 	if s.opts.CheckStorage != nil {
 		if err := s.opts.CheckStorage(s.opts.MaxMessageBytes); err != nil {
+			s.opts.SecurityCounters.RecordSMTPTemporaryRejection()
 			slog.Warn("smtp DATA temporarily rejected", "component", "smtp", "reason", "storage capacity")
 			return smtpError(452, "insufficient system storage")
 		}
@@ -178,6 +182,7 @@ func (s *session) Data(r io.Reader) error {
 	if s.opts.ResolveAccountID != nil && len(s.envelopeTo) > 0 {
 		resolved, resolveErr := s.opts.ResolveAccountID(ctx, s.envelopeTo[0])
 		if resolveErr != nil {
+			s.opts.SecurityCounters.RecordSMTPTemporaryRejection()
 			return smtpError(451, "temporary account routing failure")
 		}
 		accountID = resolved
@@ -192,6 +197,7 @@ func (s *session) Data(r io.Reader) error {
 		RemoteIP:     s.remoteIP,
 	})
 	if errors.Is(err, storageguard.ErrUnavailable) {
+		s.opts.SecurityCounters.RecordSMTPTemporaryRejection()
 		slog.Warn("smtp DATA temporarily rejected", "component", "smtp", "reason", "storage capacity")
 		return smtpError(452, "insufficient system storage")
 	}
@@ -225,6 +231,7 @@ func normalizeOptions(opts Options) Options {
 		MaxRecipients:    opts.MaxRecipients,
 		DataTimeout:      opts.DataTimeout,
 		CheckStorage:     opts.CheckStorage,
+		SecurityCounters: opts.SecurityCounters,
 	}
 	if opts.TLSConfig != nil {
 		out.TLSConfig = opts.TLSConfig.Clone()
@@ -259,11 +266,12 @@ func normalizeOptions(opts Options) Options {
 
 type limitedListener struct {
 	net.Listener
-	slots chan struct{}
+	slots    chan struct{}
+	security *securitymetrics.Counters
 }
 
-func newLimitedListener(ln net.Listener, maxConnections int) net.Listener {
-	return &limitedListener{Listener: ln, slots: make(chan struct{}, maxConnections)}
+func newLimitedListener(ln net.Listener, maxConnections int, counters *securitymetrics.Counters) net.Listener {
+	return &limitedListener{Listener: ln, slots: make(chan struct{}, maxConnections), security: counters}
 }
 
 func (l *limitedListener) Accept() (net.Conn, error) {
@@ -276,6 +284,7 @@ func (l *limitedListener) Accept() (net.Conn, error) {
 		case l.slots <- struct{}{}:
 			return &limitedConn{Conn: conn, release: func() { <-l.slots }}, nil
 		default:
+			l.security.RecordSMTPSaturationRejection()
 			_ = conn.SetWriteDeadline(time.Now().Add(time.Second))
 			_, _ = io.WriteString(conn, "421 4.3.2 server temporarily busy\r\n")
 			_ = conn.Close()

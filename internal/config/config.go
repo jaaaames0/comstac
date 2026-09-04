@@ -62,12 +62,6 @@ type Config struct {
 
 	// Agent SSE (ghost-mail integration)
 	AgentToken string
-
-	// Backup
-	BackupDir    string
-	BackupDest   string // remote SCP destination, e.g. user@host:/path/to/backups/
-	BackupKey    string // path to SSH private key (optional)
-	BackupRetain int    // number of local snapshots to keep (default 7)
 }
 
 var requiredServerEnv = []string{
@@ -173,11 +167,6 @@ func FromEnv() Config {
 		VAPIDPublicKey:  envOr("COMSTAC_VAPID_PUBLIC", ""),
 		VAPIDPrivateKey: envOr("COMSTAC_VAPID_PRIVATE", ""),
 		VAPIDSubject:    envOr("COMSTAC_VAPID_SUBJECT", ""),
-
-		BackupDir:    envOr("COMSTAC_BACKUP_DIR", "/var/lib/comstac/backups"),
-		BackupDest:   envOr("COMSTAC_BACKUP_DEST", ""),
-		BackupKey:    envOr("COMSTAC_BACKUP_KEY", ""),
-		BackupRetain: parseIntOr(envOr("COMSTAC_BACKUP_RETAIN", ""), 7),
 
 		AgentToken: envOr("COMSTAC_AGENT_TOKEN", ""),
 	}
@@ -353,16 +342,6 @@ func envOr(key, fallback string) string {
 		// Strip surrounding quotes if the value was written as key="value" in a .env file.
 		v = strings.Trim(v, `"'`)
 		return v
-	}
-	return fallback
-}
-
-func parseIntOr(raw string, fallback int) int {
-	if raw == "" {
-		return fallback
-	}
-	if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && n > 0 {
-		return n
 	}
 	return fallback
 }
