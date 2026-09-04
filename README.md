@@ -1,22 +1,23 @@
-# comstac
+# Comstac
 
-A self-hosted, single-user mail client in a single Go binary. Receives local-domain SMTP mail, aggregates external accounts via IMAP, and serves a unified inbox through a terminal-style web UI.
+A self-hosted, single-user mail client in a single Go binary. It receives
+local-domain SMTP mail, imports one Gmail mailbox over IMAP/OAuth2, and serves a
+unified inbox through a terminal-style web UI.
 
 ---
 
 ## What it does
 
 - **Receives inbound SMTP** for your own domain — acts as a minimal MTA for configured local recipients
-- **Aggregates Gmail (or any IMAP)** via OAuth2, polling on a configurable interval
+- **Aggregates one Gmail mailbox** over IMAP with OAuth2, polling on a configurable interval
 - **Unified inbox** — SMTP and IMAP messages appear in one stream, filterable by source
 - **Full-text search** across subject, sender, and body text
 - **Compose and reply** through a configured SMTP smart-host relay — with reply-all, forward, attachment uploads, and CC/BCC
 - **SPF / DKIM observations and DMARC policy lookup** on inbound mail with per-message badges
 - **Spam auto-flagging** when both SPF and DKIM hard-fail
-- **Agent real-time alerts** (SSE) — OpenClaw agent connects via HTTPS to receive instant `new_mail` events when messages arrive; no polling, no SSH tunnel
 - **Web Push notifications** (VAPID) for new mail — tapping a notification opens the specific email directly
 - **Attachment download** on demand, streamed directly from the database
-- **Snooze, archive, spam-flag** actions with optional IMAP write-back
+- **Snooze, trash/restore, read/unread, and spam-flag** actions stored locally; upstream IMAP write-back remains deferred
 - **Keyboard shortcuts** — `j`/`k` navigation, `r` reply, `e` trash, `u` unread, `c` compose, `Escape` back
 - **Mobile layout** — swipe-to-trash, push-pattern navigation, two-row topbar
 - **External recovery integration** — SQLite remains compatible with independently managed, encrypted and restore-tested backups
@@ -33,8 +34,9 @@ A self-hosted, single-user mail client in a single Go binary. Receives local-dom
 
 ## Requirements
 
-- **Go 1.26+** (production releases are built with the pinned host toolchain)
-- A Linux host with outbound SMTP access via a smart-host relay (port 587)
+- **Go 1.26+** (the current module minimum is Go 1.26)
+- A Linux host; outbound sending additionally requires access to an SMTP
+  smart-host relay (port 587 by default)
 - **nginx** (recommended) as a TLS-terminating reverse proxy with Let's Encrypt
 - For Gmail IMAP: a Google Cloud project with an OAuth2 credential
 
@@ -45,7 +47,7 @@ A self-hosted, single-user mail client in a single Go binary. Receives local-dom
 ### 1. Build
 
 ```bash
-git clone https://github.com/youruser/comstac.git
+git clone https://github.com/jaaaames0/comstac.git
 cd comstac
 go test ./...
 go build -trimpath -buildvcs=true -o comstac ./cmd/comstac
@@ -92,7 +94,7 @@ See [Configuration](#configuration) below for all options.
 
 ```bash
 set -a
-source /path/to/comstac.env
+source /path/to/comstac.env # for a deliberately shell-compatible development file
 set +a
 ./comstac check-config
 ./comstac
@@ -102,9 +104,20 @@ make run
 
 The web UI is available at `http://localhost:8080` (or whatever `COMSTAC_HTTP_ADDR` is set to). Log in with your configured admin credentials.
 
+Production systemd `EnvironmentFile=` syntax is not the same as shell syntax in
+every case. Do not blindly source a protected production environment file;
+have systemd load it for the service and run preflight through the same native
+environment boundary.
+
 ### 4. nginx + TLS (production)
 
-Point nginx at the explicitly configured loopback `COMSTAC_HTTP_ADDR` and terminate TLS with Let's Encrypt. A minimal server block:
+Point nginx at the explicitly configured loopback `COMSTAC_HTTP_ADDR` and terminate TLS with Let's Encrypt. Define the request-limit zone once in nginx's `http` context:
+
+```nginx
+limit_req_zone $binary_remote_addr zone=login:10m rate=5r/m;
+```
+
+Then apply it to both login routes in the server block:
 
 ```nginx
 server {
@@ -166,7 +179,8 @@ Comstac fetches Gmail via IMAP with OAuth2 — no app password needed.
 4. Run the authorization flow:
 
 ```bash
-source comstac.env && ./comstac authorize
+set -a; source /path/to/shell-compatible-comstac.env; set +a
+./comstac authorize
 # Opens a browser URL — paste it on your local machine, authorize, paste the code back
 ```
 
@@ -274,12 +288,24 @@ user exists it does not overwrite a rotated database credential.
 |---|---|---|
 | `COMSTAC_IMAP_ADDR` | `imap.gmail.com:993` | IMAP server |
 | `COMSTAC_IMAP_USERNAME` | — | Gmail address |
+| `COMSTAC_IMAP_MAILBOX` | `INBOX` | Mailbox to poll |
 | `COMSTAC_IMAP_POLL_INTERVAL` | `60s` | Poll interval (Go duration) |
 | `COMSTAC_IMAP_CLIENT_ID` | — | OAuth2 client ID (Desktop app credential) |
 | `COMSTAC_IMAP_CLIENT_SECRET` | — | OAuth2 client secret |
 | `COMSTAC_IMAP_REFRESH_TOKEN` | — | Refresh token from `comstac authorize` |
 
-| `COMSTAC_AGENT_TOKEN` | — | Strong token for agent SSE auth (`openssl rand -hex 32`). Enables `GET /api/push/sse` for OpenClaw agent integration |
+### Agent SSE (optional, dormant)
+
+| Variable | Default | Description |
+|---|---|---|
+| `COMSTAC_AGENT_TOKEN` | — | Token of at least 32 characters for `GET /api/push/sse`; the endpoint is absent when unset |
+
+The SSE endpoint is retained as an optional integration surface but is not part
+of the current production workflow. In the present implementation, new-mail
+event dispatch shares the Web Push notifier, so the complete VAPID group must
+also be configured before SSE clients receive new-mail events. The endpoint can
+carry sender and subject data and must be exposed only through a deliberately
+reviewed HTTPS route.
 
 ### Web Push (optional)
 
@@ -373,3 +399,15 @@ The binary embeds all frontend assets (templates, static files) at build time �
   `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` and
   `Cross-Origin-Opener-Policy`) are set on all responses
 - Apply the same nginx rate limit to exact locations `/login` and `/api/login`; Comstac also shares an in-process limiter across both routes
+
+## Current limitations
+
+- One external Gmail mailbox is configured through environment variables; this
+  is not a general multi-account IMAP manager.
+- IMAP-origin actions are local-first. Jobs are recorded, but the deployed
+  provider adapter is currently a no-op, so Gmail state is not written back.
+- Conversation records exist internally, but the product intentionally presents
+  inbox and sent views rather than a threaded conversation UI.
+- SMTP STARTTLS is opportunistic for public MX compatibility. It protects
+  transport when negotiated but does not authenticate the human author of a
+  message.

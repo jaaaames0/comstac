@@ -1,5 +1,12 @@
 # ROADMAP.md
 
+## Current Status
+
+Comstac is a production-used `0.x` single-user mail client. Core mail, browser,
+mobile, backup-integration and security work are complete. The remaining `1.0`
+gates are a soak period, clean-install/upgrade validation, and an explicit
+release/tag decision. Deferred features are not blockers unless promoted below.
+
 ## Product Timeline
 Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 
@@ -23,7 +30,7 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 ## Milestones
 1. IMAP fetch loop with checkpoint tracking. ✓
 2. MIME normalization into message/thread tables. ✓
-3. Desktop 3-pane UI scaffold (HTMX + Alpine + Tailwind). ✓
+3. Embedded HTML/CSS/JavaScript UI scaffold using HTMX. ✓
 4. Inbox list supports high-density view (20+ rows visible). — deferred to 0.2.x polish
 
 ## Exit Criteria
@@ -83,7 +90,7 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 ## Exit Criteria
 - Threads feel additive, not confusing.
 
-## Phase 6: Hardening (`0.5.x` – `0.6.x`) ✓
+## Phase 6: Hardening (`0.5.x`–`0.6.x`, expanded in `Unreleased`) ✓
 ## Objectives
 - Close security and reliability gaps; meet all NFRs from SPECS.md.
 
@@ -98,7 +105,8 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 8. Identity selection on compose/reply — deferred; single approved sender, requires upstream send-as config.
 
 ## Exit Criteria
-- Stable alpha for daily single-user usage; all SPECS.md NFRs demonstrably met. ✓
+- Stable alpha for daily single-user usage with the planned application and
+  browser hardening boundaries in place. ✓
 
 ## Phase 7: Operational Polish (`0.7.x`) ✓
 ## Objectives
@@ -158,12 +166,17 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 - Production-grade single-user release. Exit criterion: comstac is the primary daily driver for all inbound and outbound mail.
 
 ## Milestones
-1. Soak period — daily driver use surfaces any remaining functional bugs.
-2. Full documentation pass (CONFIG.md, SYSTEM.md, SPECS.md accuracy).
-3. Security review checklist (OWASP top 10, session hygiene, CSRF coverage, header hardening).
-4. **Agent integration (ghost-mail)**: SSE endpoint for OpenClaw agent — `GET /api/push/sse` with `X-Agent-Token` auth, fires `new_mail` events on ingest. ghost-sse-client.py completes the integration. (in progress — endpoint implemented 2026-04-30)
-5. Upgrade/migration validation from clean install.
-6. Tagged `1.0.0` release and changelog freeze.
+1. Soak period — daily-driver use surfaces any remaining functional bugs. (in progress)
+2. Full public documentation accuracy pass. ✓ (2026-09-04)
+3. Security review and hardening program: authentication/session/CSRF, browser
+   and email rendering, resource/storage bounds, SMTP transport and operational
+   recovery. ✓ (2026-09-04)
+4. Upgrade and migration validation from a clean install.
+5. Tagged `1.0.0` release and changelog freeze.
+
+The optional token-authenticated agent SSE endpoint remains dormant code. The
+former ghost-mail consumer was abandoned in favour of polling and is not a
+`1.0` release requirement.
 
 ## Exit Criteria
 - Comstac is the primary mail client for daily use with no known functional regressions.

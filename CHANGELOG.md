@@ -7,7 +7,12 @@ This project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
-- **Agent SSE integration**: `GET /api/push/sse` — optional token-authenticated SSE endpoint for OpenClaw agent (ghost-mail). Auth via `X-Agent-Token` header. Fires `event: new_mail\ndata: {"id", "from", "subject"}` on each new message, plus `event: ping\ndata: {}` every 30s. Up to four simultaneous agent connections are supported. Configured via `COMSTAC_AGENT_TOKEN` and absent when unset.
+- **Optional agent SSE endpoint**: `GET /api/push/sse` uses the
+  `X-Agent-Token` header, emits 30-second keepalives and supports up to four
+  simultaneous clients. It is absent when `COMSTAC_AGENT_TOKEN` is unset. The
+  former ghost-mail consumer was abandoned and the endpoint is dormant in the
+  current production workflow. New-mail dispatch presently shares the Web Push
+  notifier and therefore also requires the complete VAPID configuration.
 - **Configuration preflight**: `comstac check-config` validates server settings without opening the database or starting listeners and prints no values.
 - **Remote-image privacy preferences**: the operator can add or remove normalized
   exact mailbox addresses whose messages may load HTTPS images automatically.
@@ -71,6 +76,10 @@ This project adheres to Semantic Versioning.
   JWT dependency were advanced to their mutually compatible fixed releases;
   `govulncheck` reports zero reachable and zero imported-package
   vulnerabilities.
+- Public documentation now describes the implemented single-mailbox Gmail
+  integration, local-only IMAP state actions, opportunistic inbound STARTTLS,
+  external backup boundary, current commands and remaining `1.0` gates. The
+  starter environment now includes every required server variable.
 
 ### Removed
 - The superseded `comstac backup` command, its SCP/private-key configuration
@@ -229,7 +238,7 @@ This project adheres to Semantic Versioning.
   4. DMARC policy looked up via `github.com/emersion/go-msgauth/dmarc` from From: header domain.
   5. Results stored as JSON in new `auth_results` column (`0007_auth_results.sql`).
   6. Inline auth badges rendered in message detail pane (colored DKIM/SPF/DMARC labels).
-- Metrics endpoint `GET /metrics` (authenticated; moved to public in initial release, corrected in `[Unreleased]`):
+- Metrics endpoint `GET /metrics` (initially public; moved behind session authentication in `0.9.3`):
   - `uptime_seconds`, `requests_total`, `messages_total`, `messages_unread`, `sync_jobs_pending`, `sync_jobs_failed`.
   - `requests_total` tracked via in-process atomic counter.
 - Session cookie `Secure` flag enabled — cookie only sent over HTTPS.

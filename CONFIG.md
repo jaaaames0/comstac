@@ -113,12 +113,21 @@ with a current checkpoint and rollback.
   - Example: `local@example.com,alerts@example.com`
 
 ## Agent Integration (ghost-mail SSE)
-- `COMSTAC_AGENT_TOKEN`: Strong token for authenticating the OpenClaw agent to `GET /api/push/sse`. Generate with `openssl rand -hex 32`. If unset, the SSE endpoint is not registered (silently skipped). Token is sent as the `X-Agent-Token` header by `ghost-sse-client.py`.
+- `COMSTAC_AGENT_TOKEN`: Optional token of at least 32 characters for
+  authenticating `GET /api/push/sse` through the `X-Agent-Token` header. If
+  unset, the endpoint is not registered.
+
+The former ghost-mail consumer is no longer used. In the current implementation
+new-mail SSE dispatch shares the Web Push notifier, so setting the token alone
+registers the stream but does not deliver new-mail events unless the complete
+VAPID configuration is also enabled. Treat this as a dormant integration
+surface unless a new consumer and HTTPS route are deliberately reviewed.
 
 ## Notes
 - `COMSTAC_LOCAL_RECIPIENTS` also bootstraps local accounts used for recipient routing.
 - Values are normalized to lowercase where relevant.
-- Empty/invalid CSV entries are ignored.
+- Empty CSV entries are ignored; non-empty invalid domains or addresses make
+  startup and `check-config` fail.
 - Relay, IMAP OAuth, browser OAuth and VAPID settings are validated as complete groups when enabled.
 - Comstac enforces bounded HTTP bodies, a shared limiter for `/login` and `/api/login`, at most 32 concurrent SMTP connections, at most four concurrent SMTP DATA handlers, 25 MiB per message, 100 recipients per transaction, and a bounded notification queue.
 - Storage limits are integer byte counts rather than percentages so behavior is explicit and reproducible. Reassess the watermarks if Comstac state moves to another filesystem or the host's storage allocation changes.
