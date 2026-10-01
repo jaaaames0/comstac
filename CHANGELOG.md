@@ -6,6 +6,20 @@ This project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+- **Load images remembers the sender**: the per-message `load images` action
+  now also adds the exact `From` mailbox to the automatic remote-image list
+  (manageable under accounts). An unparseable `From` loads images once without
+  changing the list. The action is a CSRF-protected POST message action.
+- **Message header layout**: subject and from/to/date stay on the left; auth
+  badges and actions move to a right-hand column, shortening the header. A
+  narrow reading pane (including mobile) stacks them as before.
+- **Action order**: reply is the first (primary) action again; `load images`
+  sits between snooze and spam.
+- **Search box** clears when the list is replaced by anything other than search
+  results (filters, streams, sent, home).
+- **Compose/forward focus** the recipient field; reply still focuses the body.
+
 ### Removed
 - **Web-based Gmail re-authorization** (`/ui/oauth/start`, `/ui/oauth/callback`)
   and its `COMSTAC_BASE_URL`, `COMSTAC_OAUTH_CLIENT_ID` and

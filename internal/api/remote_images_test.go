@@ -103,9 +103,88 @@ func TestRemoteImagePreferencesRequireAuthAndCSRFAndMatchMailboxOnly(t *testing.
 	}
 }
 
+func TestLoadImagesActionAllowlistsExactSenderMailbox(t *testing.T) {
+	db := openTestDB(t)
+	authMgr := bootstrapAuth(t, db)
+	forgedID := ingestHTMLMessage(t, db, `"trusted@example.com" <Attacker@Example.NET>`)
+	laterID := ingestHTMLMessage(t, db, `attacker@example.net`)
+	otherID := ingestHTMLMessage(t, db, `trusted@example.com`)
+	invalidID := ingestHTMLMessage(t, db, `not a mailbox`)
+
+	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	baseURL, stop := runAPIServer(t, srv)
+	defer stop()
+	client := authedClient(t, baseURL)
+
+	form := url.Values{"id": {itoa(forgedID)}, "action": {"allow_images"}}
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/ui/message/actions", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("missing-CSRF status=%d", resp.StatusCode)
+	}
+	if senders := remoteImageSenders(t, db); len(senders) != 0 {
+		t.Fatalf("CSRF-rejected action changed the allowlist: %v", senders)
+	}
+
+	body := postMessageActionValues(t, client, baseURL, forgedID, "allow_images", "")
+	if strings.Contains(body, ">load images</button>") || !strings.Contains(body, "img-src data: https:;") {
+		t.Fatal("load images action did not render remote images")
+	}
+	if senders := remoteImageSenders(t, db); len(senders) != 1 || senders[0] != "attacker@example.net" {
+		t.Fatalf("allowlist = %v, want only the exact From mailbox", senders)
+	}
+	later := getResponseBody(t, client, baseURL+"/ui/message?id="+itoa(laterID))
+	if strings.Contains(later, ">load images</button>") || !strings.Contains(later, "img-src data: https:;") {
+		t.Fatal("later message from the allowlisted mailbox did not load images")
+	}
+	other := getResponseBody(t, client, baseURL+"/ui/message?id="+itoa(otherID))
+	if !strings.Contains(other, ">load images</button>") || strings.Contains(other, "img-src data: https:;") {
+		t.Fatal("display-name address was allowlisted")
+	}
+
+	body = postMessageActionValues(t, client, baseURL, invalidID, "allow_images", "")
+	if !strings.Contains(body, "img-src data: https:;") {
+		t.Fatal("unparseable From did not load images once")
+	}
+	if senders := remoteImageSenders(t, db); len(senders) != 1 {
+		t.Fatalf("unparseable From changed the allowlist: %v", senders)
+	}
+}
+
+func remoteImageSenders(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	rows, err := db.Query(`SELECT email_address FROM remote_image_senders ORDER BY email_address`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 func postMessageAction(t *testing.T, client *http.Client, baseURL string, id int64) string {
 	t.Helper()
-	form := url.Values{"id": {itoa(id)}, "action": {"read"}, "value": {"1"}}
+	return postMessageActionValues(t, client, baseURL, id, "read", "1")
+}
+
+func postMessageActionValues(t *testing.T, client *http.Client, baseURL string, id int64, action, value string) string {
+	t.Helper()
+	form := url.Values{"id": {itoa(id)}, "action": {action}, "value": {value}}
 	req, err := http.NewRequest(http.MethodPost, baseURL+"/ui/message/actions", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)

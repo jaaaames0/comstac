@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -487,6 +488,22 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UICon
 			}
 		case "spam":
 			_, err = store.SetMessageSpam(req.Context(), db, id, req.FormValue("value") == "1")
+		case "allow_images":
+			// Remember the exact From mailbox so later messages load images
+			// automatically. An unparseable From still loads images once.
+			detail, dErr := store.GetMessageDetail(req.Context(), db, id)
+			if dErr != nil || detail == nil {
+				http.Error(w, "failed to reload message", http.StatusInternalServerError)
+				return
+			}
+			if _, aErr := store.AddRemoteImageSender(req.Context(), db, detail.FromAddr); aErr != nil && !errors.Is(aErr, store.ErrInvalidMailboxAddress) {
+				slog.Error("add remote-image sender", "component", "ui", "err", aErr)
+				http.Error(w, "failed to apply action", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			execute(w, "message_detail", newMessageDetailData(detail, true))
+			return
 		default:
 			http.Error(w, "unknown action", http.StatusBadRequest)
 			return

@@ -56,13 +56,23 @@ func TestMessageDetailRemoteImageControlAndTemplateEscaping(t *testing.T) {
 	if strings.Contains(blockedHTML, "remote images are blocked") || strings.Contains(blockedHTML, `class="remote-images"`) {
 		t.Fatalf("large remote-image banner survived: %s", blockedHTML)
 	}
-	if !strings.Contains(blockedHTML, "remote_images=1") || !strings.Contains(blockedHTML, ">load images</button>") {
+	if !strings.Contains(blockedHTML, `value="allow_images"`) || !strings.Contains(blockedHTML, ">load images</button>") {
 		t.Fatalf("blocked control missing: %s", rendered.String())
 	}
 	bodyIndex := strings.Index(blockedHTML, `<div class="msg-body`)
-	loadIndex := strings.Index(blockedHTML, "remote_images=1")
+	loadIndex := strings.Index(blockedHTML, `value="allow_images"`)
 	if bodyIndex < 0 || loadIndex < 0 || loadIndex > bodyIndex {
 		t.Fatal("load-images action is not in the message header")
+	}
+	// Reply stays the first (primary) action; load images sits between snooze and spam.
+	order := []string{"↩ reply ▾", "snooze ▾", ">load images</button>", ">spam</button>", ">trash</button>"}
+	last := -1
+	for _, marker := range order {
+		i := strings.Index(blockedHTML, marker)
+		if i <= last {
+			t.Fatalf("action %q out of order", marker)
+		}
+		last = i
 	}
 
 	rendered.Reset()

@@ -374,10 +374,10 @@ The binary embeds all frontend assets (templates, static files) at build time â€
   object content. Login and authenticated responses are marked `no-store`, and
   the application sends no referrer information.
 - Inbound HTML email renders in a sandboxed `<iframe>` with a second,
-  sender-independent CSP. Remote images are blocked by default and may be
-  loaded explicitly for one message. The operator may also maintain a
-  SQLite-backed list of normalized exact mailbox addresses whose HTTPS images
-  load automatically. Scripts, forms, connections, frames, objects and
+  sender-independent CSP. Remote images are blocked by default. The
+  per-message `load images` action loads them and adds the exact `From`
+  mailbox to a SQLite-backed list of normalized addresses whose HTTPS images
+  load automatically; the list can be edited under accounts. Scripts, forms, connections, frames, objects and
   automatic meta-refresh navigation remain blocked in both modes. Links open
   in a new tab.
 - An automatic-image address is a privacy preference, not proof of sender

@@ -342,10 +342,24 @@
       letter-spacing: .04em;
     }
 
+    /* Subject/fields on the left; auth badges and actions in a right-hand
+       column so the header stays short and the body gets the height. */
     .msg-header {
       padding: 22px 24px 16px;
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
+      display: grid;
+      grid-template-columns: minmax(16rem, 1fr) minmax(0, max-content);
+      column-gap: 20px;
+    }
+    .msg-header-main { min-width: 0; }
+    .msg-header-side {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 10px;
     }
 
     .msg-subject-line {
@@ -361,7 +375,6 @@
       grid-template-columns: 32px 1fr;
       gap: 3px 8px;
       font-size: 12px;
-      margin-bottom: 14px;
       color: var(--muted);
     }
     .mf-label { color: var(--dim); }
@@ -370,7 +383,7 @@
       display: flex;
       gap: 5px;
       flex-wrap: wrap;
-      margin-bottom: 12px;
+      justify-content: flex-end;
     }
     .auth-badge {
       font-size: 10px;
@@ -392,7 +405,8 @@
       font-size: 11px;
       color: var(--danger);
       font-weight: 600;
-      margin-bottom: 12px;
+      grid-column: 1 / -1;
+      margin-top: 12px;
       letter-spacing: .03em;
     }
 
@@ -403,7 +417,8 @@
       border-radius: 3px;
       font-size: 11px;
       color: var(--warning);
-      margin-bottom: 12px;
+      grid-column: 1 / -1;
+      margin-top: 12px;
     }
 
     .msg-acts {
@@ -411,6 +426,14 @@
       gap: 6px;
       flex-wrap: wrap;
       align-items: center;
+      justify-content: flex-end;
+    }
+
+    /* Narrow reading pane (including mobile): stack the header columns. */
+    @container msg (max-width: 680px) {
+      .msg-header { grid-template-columns: minmax(0, 1fr); }
+      .msg-header-side { align-items: stretch; margin-top: 14px; }
+      .auth-row, .msg-acts { justify-content: flex-start; }
     }
 
     /* primary action */
@@ -530,6 +553,7 @@
     /* ── Message body ────────────────────────────────────────────── */
     /* Wrapper makes msg-header + body fill the reader as a flex column */
     .msg-detail-wrap {
+      container: msg / inline-size;
       flex: 1;
       min-height: 0;
       display: flex;
@@ -961,6 +985,15 @@
         activeMessageId = null; // prevent stale re-highlight on next filter change
       });
 
+      // ── Search box: clear once the list shows anything but search results ──
+      var searchInput = document.querySelector('.search-input');
+      document.body.addEventListener('htmx:beforeRequest', function(e) {
+        var target = e.detail && e.detail.target;
+        if (!target || target.id !== 'message-list') return;
+        var path = (e.detail.requestConfig && e.detail.requestConfig.path) || '';
+        if (path.indexOf('/ui/search') !== 0) searchInput.value = '';
+      });
+
       // ── After pane content changes: open/close + sync row read state ──
       // Guard against bubbled events from child elements (e.g. auto-read hx-swap="none").
       pane.addEventListener('htmx:afterSwap', function(e) {
@@ -973,10 +1006,16 @@
           pane.scrollTop = 0;
           var wrap = this.querySelector('.msg-detail-wrap');
           if (!wrap) {
-            // Non-message content (compose, reply, accounts) — focus first textarea
+            // Non-message content (compose, reply, accounts) — focus an empty
+            // recipient field (compose/forward), otherwise the first textarea (reply)
             activeMessageId = null;
+            var to = this.querySelector('input[name="to"]');
             var ta = this.querySelector('textarea');
-            if (ta) { setTimeout(function() { ta.focus(); ta.setSelectionRange(0, 0); }, 50); }
+            if (to && !to.value) {
+              setTimeout(function() { to.focus(); }, 50);
+            } else if (ta) {
+              setTimeout(function() { ta.focus(); ta.setSelectionRange(0, 0); }, 50);
+            }
           } else {
             // Sync the list row's unread indicator with the detail's read state
             var msgId = wrap.dataset.id;
