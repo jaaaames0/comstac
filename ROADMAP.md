@@ -153,7 +153,7 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 5. **Mobile layout**: push pattern — single-column on portrait, list slides out and detail slides in on tap; back button returns to list. ✓ (`0.9.1`)
 6. **Mobile topbar**: two-row topbar (brand + filter nav); search and compose stay visible; back button shares brand area. ✓ (`0.9.1`)
 7. **Swipe to trash/restore on mobile**: swipe gesture on list rows replaces invisible hover button. ✓ (`0.9.1`)
-8. **Web-based Gmail re-authorization**: `/ui/oauth/start` + `/ui/oauth/callback` with IMAP auth failure detection and in-app notification. ✓ (`0.9.1`)
+8. **Web-based Gmail re-authorization**: `/ui/oauth/start` + `/ui/oauth/callback` with IMAP auth failure detection and in-app notification. ✓ (`0.9.1`; web flow removed as unused and broken, failure banner retained)
 9. **Push notifications**: Web Push (VAPID) via service worker — subscribe on mobile, trigger on inbound SMTP/IMAP ingest. ✓ (`0.9.2`, production-validated on Android + desktop Chrome)
 10. CC/BCC fields styled properly in the new design (currently plain `<details>` toggle). (low priority — may ship as-is)
 11. Inline CID image support in HTML emails (replace `cid:` refs with base64 data URIs). (low priority)

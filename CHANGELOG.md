@@ -6,6 +6,16 @@ This project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+### Removed
+- **Web-based Gmail re-authorization** (`/ui/oauth/start`, `/ui/oauth/callback`)
+  and its `COMSTAC_BASE_URL`, `COMSTAC_OAUTH_CLIENT_ID` and
+  `COMSTAC_OAUTH_CLIENT_SECRET` settings, which are now ignored. The flow stored
+  a refresh token issued to the Web Application client, but the IMAP fetcher
+  always refreshes with the Desktop app client, so a completed web
+  re-authorization could not have kept IMAP working. Recovery is
+  `comstac authorize`. The IMAP auth-failure banner remains and is now shown
+  whenever Gmail IMAP is configured rather than only when web OAuth was.
+
 ### Added
 - **Optional agent SSE endpoint**: `GET /api/push/sse` uses the
   `X-Agent-Token` header, emits 30-second keepalives and supports up to four

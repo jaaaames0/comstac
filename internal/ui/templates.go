@@ -260,9 +260,6 @@ func isRefreshMeta(attrs []html.Attribute) bool {
 
 type accountsData struct {
 	Accounts         []store.Account
-	OAuthEnabled     bool   // true if web-based Gmail re-authorization is configured
-	OAuthStatus      string // "ok" on successful re-auth, "" otherwise
-	OAuthCallbackURL string // the redirect URI to register in Google Cloud Console
 	IMAPAuthFailed   bool
 	IMAPAuthFailedAt string // formatted time when the auth failure was first recorded
 

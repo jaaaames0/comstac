@@ -84,16 +84,15 @@ Generate VAPID keys with `comstac vapid` and add the output to your environment.
 - `COMSTAC_VAPID_PRIVATE`: VAPID private key (from `comstac vapid`).
 - `COMSTAC_VAPID_SUBJECT`: Contact address for VAPID, e.g. `mailto:you@example.com`. Must be a `mailto:` or `https://` URL under your control.
 
-## Gmail OAuth2 Re-authorization (Web)
-If IMAP fetch breaks with `invalid_grant`, you can re-authorize from the web UI (`/ui/accounts`) instead of the CLI. Requires a separate "Web Application" OAuth credential set:
-- `COMSTAC_BASE_URL`: Public HTTPS root, e.g. `https://mail.example.com`.
-- `COMSTAC_OAUTH_CLIENT_ID`: OAuth2 client ID (Web Application type).
-- `COMSTAC_OAUTH_CLIENT_SECRET`: OAuth2 client secret (Web Application type).
-
-The callback URI to register in Google Cloud Console is: `{COMSTAC_BASE_URL}/ui/oauth/callback`
-
 ## Setup
 Run `comstac authorize` (with CLIENT_ID and CLIENT_SECRET set) to complete the one-time OAuth2 flow and obtain a refresh token.
+
+If IMAP fetch breaks with `invalid_grant`, `/ui/accounts` shows a warning. Run
+`comstac authorize` again with the same Desktop app credential, install the new
+`COMSTAC_IMAP_REFRESH_TOKEN` and restart. A non-empty legacy
+`imap.refresh_token` row in the `settings` table, written by the removed web
+re-authorization flow, still takes precedence over the environment value and
+must be updated or deleted as part of that recovery.
 
 ## Backup
 Comstac has no built-in backup command, backup environment variables or timer.
@@ -128,7 +127,7 @@ surface unless a new consumer and HTTPS route are deliberately reviewed.
 - Values are normalized to lowercase where relevant.
 - Empty CSV entries are ignored; non-empty invalid domains or addresses make
   startup and `check-config` fail.
-- Relay, IMAP OAuth, browser OAuth and VAPID settings are validated as complete groups when enabled.
+- Relay, IMAP OAuth and VAPID settings are validated as complete groups when enabled.
 - Comstac enforces bounded HTTP bodies, a shared limiter for `/login` and `/api/login`, at most 32 concurrent SMTP connections, at most four concurrent SMTP DATA handlers, 25 MiB per message, 100 recipients per transaction, and a bounded notification queue.
 - Storage limits are integer byte counts rather than percentages so behavior is explicit and reproducible. Reassess the watermarks if Comstac state moves to another filesystem or the host's storage allocation changes.
 

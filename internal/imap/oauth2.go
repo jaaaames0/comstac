@@ -32,18 +32,6 @@ type TokenSource struct {
 	authErrAt   time.Time // when authErr was first recorded
 }
 
-// UpdateRefreshToken replaces the stored refresh token (e.g. after web-based re-authorization).
-// Clears any cached access token and any recorded auth error.
-func (ts *TokenSource) UpdateRefreshToken(token string) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.RefreshToken = token
-	ts.accessToken = ""
-	ts.expiry = time.Time{}
-	ts.authErr = nil
-	ts.authErrAt = time.Time{}
-}
-
 // AuthError returns the most recent auth failure error and when it occurred,
 // or (nil, zero) if the token source is healthy.
 func (ts *TokenSource) AuthError() (error, time.Time) {
@@ -194,12 +182,6 @@ type codeExchangeResponse struct {
 	ExpiresIn    int    `json:"expires_in"`
 	Error        string `json:"error"`
 	ErrorDesc    string `json:"error_description"`
-}
-
-// ExchangeCode exchanges an OAuth2 authorization code for a refresh token.
-// Used by both the CLI authorize flow and the web UI callback handler.
-func ExchangeCode(ctx context.Context, clientID, clientSecret, code, redirectURI string) (string, error) {
-	return exchangeCode(ctx, clientID, clientSecret, code, redirectURI)
 }
 
 func exchangeCode(ctx context.Context, clientID, clientSecret, code, redirectURI string) (string, error) {

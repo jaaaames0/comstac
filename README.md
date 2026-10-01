@@ -186,13 +186,11 @@ set -a; source /path/to/shell-compatible-comstac.env; set +a
 
 5. Copy the printed `COMSTAC_IMAP_REFRESH_TOKEN` value into your env file
 
-### Web-based re-authorization
+### Re-authorization
 
-If the refresh token expires (`invalid_grant` error), you can re-authorize from the web UI without touching the server:
-
-1. Create a separate **Web Application** OAuth2 credential with redirect URI `https://mail.example.com/ui/oauth/callback`
-2. Set `COMSTAC_OAUTH_CLIENT_ID`, `COMSTAC_OAUTH_CLIENT_SECRET`, and `COMSTAC_BASE_URL`
-3. A warning banner appears in the Accounts page when auth has failed — click **Re-authorize**
+If the refresh token is revoked (`invalid_grant`), the Accounts page shows a
+warning. Re-run `comstac authorize` with the same Desktop app credential,
+replace `COMSTAC_IMAP_REFRESH_TOKEN` and restart the service.
 
 ---
 
@@ -314,14 +312,6 @@ reviewed HTTPS route.
 | `COMSTAC_VAPID_PUBLIC` | VAPID public key from `comstac vapid` |
 | `COMSTAC_VAPID_PRIVATE` | VAPID private key from `comstac vapid` |
 | `COMSTAC_VAPID_SUBJECT` | `mailto:` or `https://` contact address |
-
-### Web re-auth (optional)
-
-| Variable | Description |
-|---|---|
-| `COMSTAC_BASE_URL` | Public HTTPS root, e.g. `https://mail.example.com` |
-| `COMSTAC_OAUTH_CLIENT_ID` | Web Application OAuth2 client ID |
-| `COMSTAC_OAUTH_CLIENT_SECRET` | Web Application OAuth2 client secret |
 
 The long-running server checks total state and free filesystem capacity before
 persisting SMTP or IMAP messages. SQLite also receives the hard page ceiling on

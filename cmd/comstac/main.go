@@ -210,37 +210,15 @@ func main() {
 		}
 	}
 
-	// Web re-auth uses the dedicated Web Application OAuth client credentials.
-	// Falls back to the Desktop app credentials only if the web-specific ones aren't set.
-	webClientID := cfg.OAuthClientID
-	webClientSecret := cfg.OAuthClientSecret
-	if webClientID == "" {
-		webClientID = cfg.IMAPClientID
-	}
-	if webClientSecret == "" {
-		webClientSecret = cfg.IMAPClientSecret
-	}
-
-	var oauthCfg *ui.OAuthConfig
-	if webClientID != "" && webClientSecret != "" && cfg.BaseURL != "" && ts != nil {
-		oauthCfg = &ui.OAuthConfig{
-			ClientID:       webClientID,
-			ClientSecret:   webClientSecret,
-			BaseURL:        cfg.BaseURL,
-			CSRFSecret:     csrfSecret,
+	var uiCfg *ui.UIConfig
+	if ts != nil || pushNotifier != nil {
+		uiCfg = &ui.UIConfig{
 			TokenSource:    ts,
-			DB:             db,
 			VAPIDPublicKey: cfg.VAPIDPublicKey,
-		}
-	} else if pushNotifier != nil {
-		// Push configured but OAuth not fully configured — still need to pass VAPID key.
-		oauthCfg = &ui.OAuthConfig{
-			VAPIDPublicKey: cfg.VAPIDPublicKey,
-			DB:             db,
 		}
 	}
 
-	apiSrv := api.New(cfg.HTTPAddr, db, authMgr, outRelay, oauthCfg, agentClients)
+	apiSrv := api.New(cfg.HTTPAddr, db, authMgr, outRelay, uiCfg, agentClients)
 	apiSrv.SetSecurityCounters(securityCounters)
 	apiSrv.SetStorageGuard(capacity)
 	apiSrv.SetACMEChallengeDir(cfg.ACMEChallengeDir)

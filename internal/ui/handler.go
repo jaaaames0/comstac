@@ -2,18 +2,13 @@ package ui
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/mail"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -23,31 +18,24 @@ import (
 	"comstac/internal/store"
 )
 
-// OAuthConfig holds parameters needed for server-side Gmail re-authorization
-// and Web Push (VAPID) configuration.
-// BaseURL must be the public HTTPS root (e.g. "https://mail.example.com") so
-// that the redirect URI can be registered in Google Cloud Console.
-type OAuthConfig struct {
-	ClientID     string
-	ClientSecret string
-	BaseURL      string // public root; callback = BaseURL + "/ui/oauth/callback"
-	CSRFSecret   string // same CSRF secret used by auth package
-	TokenSource  *imap.TokenSource
-	DB           *sql.DB
+// UIConfig holds optional runtime state surfaced by the UI: the Gmail IMAP
+// token source (for auth-failure banners) and Web Push (VAPID) configuration.
+type UIConfig struct {
+	TokenSource *imap.TokenSource // nil when Gmail IMAP is not configured
 
 	// Web Push (VAPID) — set when COMSTAC_VAPID_* env vars are configured.
 	VAPIDPublicKey string // base64url-encoded; passed to template for browser PushManager.subscribe
 }
 
-func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuthConfig) {
+func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UIConfig) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/" {
 			http.NotFound(w, req)
 			return
 		}
 		imapAuthFailed := false
-		if oauth != nil && oauth.TokenSource != nil {
-			authErr, _ := oauth.TokenSource.AuthError()
+		if uiCfg != nil && uiCfg.TokenSource != nil {
+			authErr, _ := uiCfg.TokenSource.AuthError()
 			imapAuthFailed = authErr != nil
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -159,23 +147,18 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		oauthEnabled := oauth != nil && oauth.ClientID != "" && oauth.BaseURL != ""
-		callbackURL := ""
-		if oauthEnabled {
-			callbackURL = strings.TrimRight(oauth.BaseURL, "/") + "/ui/oauth/callback"
-		}
 		imapAuthFailed := false
 		imapAuthFailedAt := ""
-		if oauth != nil && oauth.TokenSource != nil {
-			authErr, authErrAt := oauth.TokenSource.AuthError()
+		if uiCfg != nil && uiCfg.TokenSource != nil {
+			authErr, authErrAt := uiCfg.TokenSource.AuthError()
 			if authErr != nil {
 				imapAuthFailed = true
 				imapAuthFailedAt = authErrAt.In(sydneyLoc).Format("2 Jan 15:04")
 			}
 		}
 		vapidPublicKey := ""
-		if oauth != nil {
-			vapidPublicKey = oauth.VAPIDPublicKey
+		if uiCfg != nil {
+			vapidPublicKey = uiCfg.VAPIDPublicKey
 		}
 		pushCount := 0
 		if vapidPublicKey != "" {
@@ -188,9 +171,6 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 		}
 		execute(w, "accounts", accountsData{
 			Accounts:         accounts,
-			OAuthEnabled:     oauthEnabled,
-			OAuthStatus:      req.URL.Query().Get("oauth"),
-			OAuthCallbackURL: callbackURL,
 			IMAPAuthFailed:   imapAuthFailed,
 			IMAPAuthFailedAt: imapAuthFailedAt,
 			VAPIDPublicKey:   vapidPublicKey,
@@ -567,10 +547,6 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, oauth *OAuth
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-
-	if oauth != nil && oauth.ClientID != "" && oauth.ClientSecret != "" && oauth.BaseURL != "" {
-		registerOAuthRoutes(mux, oauth)
-	}
 }
 
 // renderUIError writes browser-facing errors through html/template so future
@@ -591,87 +567,6 @@ func remoteImagesAllowed(ctx context.Context, db *sql.DB, fromHeader string, exp
 		return false
 	}
 	return allowed
-}
-
-// registerOAuthRoutes wires GET /ui/oauth/start and GET /ui/oauth/callback.
-func registerOAuthRoutes(mux *http.ServeMux, cfg *OAuthConfig) {
-	redirectURI := strings.TrimRight(cfg.BaseURL, "/") + "/ui/oauth/callback"
-
-	// oauthState signs a random nonce with the CSRF secret so we can verify it
-	// on callback without storing server-side state.
-	signState := func(nonce string) string {
-		mac := hmac.New(sha256.New, []byte(cfg.CSRFSecret))
-		mac.Write([]byte(nonce))
-		return nonce + "." + hex.EncodeToString(mac.Sum(nil))
-	}
-	verifyState := func(state string) bool {
-		dot := strings.LastIndex(state, ".")
-		if dot < 1 {
-			return false
-		}
-		nonce, sig := state[:dot], state[dot+1:]
-		mac := hmac.New(sha256.New, []byte(cfg.CSRFSecret))
-		mac.Write([]byte(nonce))
-		expected := hex.EncodeToString(mac.Sum(nil))
-		return hmac.Equal([]byte(sig), []byte(expected))
-	}
-
-	mux.HandleFunc("/ui/oauth/start", func(w http.ResponseWriter, req *http.Request) {
-		nonce := make([]byte, 16)
-		if _, err := rand.Read(nonce); err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		state := signState(hex.EncodeToString(nonce))
-
-		params := url.Values{
-			"client_id":     {cfg.ClientID},
-			"redirect_uri":  {redirectURI},
-			"response_type": {"code"},
-			"scope":         {"https://mail.google.com/"},
-			"access_type":   {"offline"},
-			"prompt":        {"consent"},
-			"state":         {state},
-		}
-		http.Redirect(w, req, "https://accounts.google.com/o/oauth2/v2/auth?"+params.Encode(), http.StatusFound)
-	})
-
-	mux.HandleFunc("/ui/oauth/callback", func(w http.ResponseWriter, req *http.Request) {
-		q := req.URL.Query()
-		if errMsg := q.Get("error"); errMsg != "" {
-			slog.Warn("oauth callback rejected", "component", "imap", "reason", "provider_error")
-			http.Error(w, "OAuth authorization failed", http.StatusBadRequest)
-			return
-		}
-		if !verifyState(q.Get("state")) {
-			http.Error(w, "invalid state", http.StatusBadRequest)
-			return
-		}
-		code := q.Get("code")
-		if code == "" {
-			http.Error(w, "missing code", http.StatusBadRequest)
-			return
-		}
-
-		refreshToken, err := imap.ExchangeCode(req.Context(), cfg.ClientID, cfg.ClientSecret, code, redirectURI)
-		if err != nil {
-			slog.Error("oauth callback: exchange code", "err", err)
-			http.Error(w, "token exchange failed", http.StatusInternalServerError)
-			return
-		}
-
-		// Persist to DB so the token survives service restarts.
-		if err := store.SetSetting(req.Context(), cfg.DB, "imap.refresh_token", refreshToken); err != nil {
-			slog.Error("oauth callback: persist token", "err", err)
-			// Non-fatal — update in-memory token anyway.
-		}
-
-		// Update the live TokenSource so the fetcher resumes immediately.
-		cfg.TokenSource.UpdateRefreshToken(refreshToken)
-		slog.Info("oauth re-authorization successful", "component", "imap")
-
-		http.Redirect(w, req, "/ui/accounts?oauth=ok", http.StatusFound)
-	})
 }
 
 // safeAttachmentContentType returns a content-type safe for serving attachment

@@ -48,13 +48,6 @@ type Config struct {
 	IMAPClientSecret string
 	IMAPRefreshToken string
 
-	// Base URL for server-side OAuth callbacks (e.g. https://mail.example.com)
-	BaseURL string
-	// Web Application OAuth2 credentials for browser-based re-authorization.
-	// Separate from IMAPClientID/Secret (which are Desktop app credentials).
-	OAuthClientID     string
-	OAuthClientSecret string
-
 	// Web Push (VAPID)
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
@@ -151,10 +144,6 @@ func FromEnv() Config {
 		RelayUsername: envOr("COMSTAC_RELAY_USERNAME", ""),
 		RelayPassword: envOr("COMSTAC_RELAY_PASSWORD", ""),
 		RelayFrom:     envOr("COMSTAC_RELAY_FROM", ""),
-
-		BaseURL:           envOr("COMSTAC_BASE_URL", ""),
-		OAuthClientID:     envOr("COMSTAC_OAUTH_CLIENT_ID", ""),
-		OAuthClientSecret: envOr("COMSTAC_OAUTH_CLIENT_SECRET", ""),
 
 		IMAPAddr:         envOr("COMSTAC_IMAP_ADDR", "imap.gmail.com:993"),
 		IMAPUsername:     envOr("COMSTAC_IMAP_USERNAME", ""),
@@ -271,16 +260,6 @@ func (c Config) Validate() error {
 		"COMSTAC_IMAP_USERNAME": c.IMAPUsername, "COMSTAC_IMAP_CLIENT_ID": c.IMAPClientID,
 		"COMSTAC_IMAP_CLIENT_SECRET": c.IMAPClientSecret,
 	})
-	validateAllOrNone(&problems, "web OAuth", map[string]string{
-		"COMSTAC_BASE_URL": c.BaseURL, "COMSTAC_OAUTH_CLIENT_ID": c.OAuthClientID,
-		"COMSTAC_OAUTH_CLIENT_SECRET": c.OAuthClientSecret,
-	})
-	if c.BaseURL != "" {
-		u, err := url.Parse(c.BaseURL)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			problems = append(problems, "COMSTAC_BASE_URL must be an HTTPS origin without credentials, query or fragment")
-		}
-	}
 	validateAllOrNone(&problems, "VAPID", map[string]string{
 		"COMSTAC_VAPID_PUBLIC": c.VAPIDPublicKey, "COMSTAC_VAPID_PRIVATE": c.VAPIDPrivateKey,
 		"COMSTAC_VAPID_SUBJECT": c.VAPIDSubject,

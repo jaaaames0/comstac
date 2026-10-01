@@ -30,7 +30,7 @@ type Server struct {
 	db           *sql.DB
 	auth         *authpkg.Manager
 	relay        *relay.Relay
-	oauth        *ui.OAuthConfig
+	uiCfg        *ui.UIConfig
 	agentClients *push.AgentClients
 	startedAt    time.Time
 	reqCount     atomic.Int64
@@ -66,9 +66,9 @@ const (
 	httpMaxHeaderBytes     = 1 << 20
 )
 
-func New(addr string, db *sql.DB, auth *authpkg.Manager, r *relay.Relay, oauth *ui.OAuthConfig, ac *push.AgentClients) *Server {
+func New(addr string, db *sql.DB, auth *authpkg.Manager, r *relay.Relay, uiCfg *ui.UIConfig, ac *push.AgentClients) *Server {
 	return &Server{
-		addr: addr, db: db, auth: auth, relay: r, oauth: oauth,
+		addr: addr, db: db, auth: auth, relay: r, uiCfg: uiCfg,
 		agentClients: ac, startedAt: time.Now(), loginLimiter: newLoginLimiter(),
 	}
 }
@@ -178,7 +178,7 @@ func (s *Server) Handler() http.Handler {
 	}
 
 	protectedMux := http.NewServeMux()
-	ui.RegisterRoutes(protectedMux, s.db, s.relay, s.oauth)
+	ui.RegisterRoutes(protectedMux, s.db, s.relay, s.uiCfg)
 	protectedMux.HandleFunc("/metrics", s.handleMetrics)
 	protectedMux.HandleFunc("/logout", s.handleLogout)
 	protectedMux.HandleFunc("/api/logout", s.handleAPILogout)
