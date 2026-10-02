@@ -796,6 +796,154 @@
       body.detail-open .brand-name { display: none; }
       .back-btn:hover { color: var(--text); }
     }
+
+    /* ── Calendar ────────────────────────────────────────────────── */
+    .calendar-space { display: none; }
+    body.calendar-open .workspace { display: none; }
+    body.calendar-open .calendar-space {
+      display: block;
+      height: calc(100vh - var(--topbar));
+      margin-top: var(--topbar);
+    }
+    .cal-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 380px; height: 100%; }
+    .cal-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--border); }
+    .cal-toolbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 8px 12px; border-bottom: 1px solid var(--border-sub);
+    }
+    .cal-month-label { font-weight: 700; font-size: 14px; letter-spacing: .02em; }
+    .cal-tools { display: flex; gap: 6px; }
+    .cal-dow {
+      display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+      padding: 4px 0; color: var(--dim); font-size: 11px; text-align: center;
+      border-bottom: 1px solid var(--border-sub);
+    }
+    .cal-scroll {
+      position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+      /* Prepending weeks corrects scrollTop manually; browser anchoring would double it. */
+      overflow-anchor: none;
+    }
+    .cal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); height: var(--cal-row, 104px); }
+    .cal-day {
+      position: relative; min-width: 0; overflow: hidden; padding: 3px 4px;
+      border-right: 1px solid rgba(48,54,61,.35); border-bottom: 1px solid rgba(48,54,61,.35);
+      cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+    }
+    .cal-day.cal-odd { background: rgba(255,255,255,.012); }
+    /* Months flow into each other; a light stepped line marks the boundary. */
+    .cal-day.cal-edge-top { border-top: 1px solid rgba(139,148,158,.35); }
+    .cal-day.cal-edge-left { border-left: 1px solid rgba(139,148,158,.35); }
+    .cal-day:hover { background: var(--surface-2); }
+    .cal-day.selected { background: var(--accent-dim); }
+    .cal-day.cal-past .cal-n { color: var(--dim); }
+    .cal-num { display: flex; align-items: baseline; gap: 4px; font-size: 11px; color: var(--muted); }
+    .cal-mon { color: var(--accent); font-weight: 700; }
+    .cal-today .cal-n {
+      background: var(--accent); color: var(--bg); border-radius: 9px;
+      padding: 0 5px; font-weight: 700;
+    }
+    .cal-chip {
+      display: block; width: 100%; text-align: left; border: none; cursor: pointer;
+      font-family: var(--mono); font-size: 10.5px; line-height: 15px; padding: 0 4px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      border-radius: 2px; background: none; color: var(--text);
+      border-left: 2px solid var(--kc, var(--accent));
+    }
+    .cal-chip:hover { background: var(--surface-3); }
+    .cal-chip--allday { background: color-mix(in srgb, var(--kc, var(--accent)) 22%, transparent); }
+    .cal-chip-time { color: var(--muted); }
+    .cal-more { font-size: 10px; color: var(--dim); padding-left: 4px; }
+    .k-custom { --kc: #34d399; } .k-event { --kc: #58a6ff; } .k-shift { --kc: #bc8cff; }
+    .k-deadline { --kc: #e3b341; } .k-expiry { --kc: #f0883e; } .k-flight { --kc: #39c5cf; }
+    .k-stay { --kc: #db61a2; } .k-promo { --kc: #8b949e; }
+
+    .cal-side { background: var(--surface); min-height: 0; overflow-y: auto; }
+    .cal-side-close { display: none; }
+    .cal-agenda { padding: 12px 14px 24px; }
+    .cal-notice {
+      font-size: 11px; color: var(--accent); background: var(--accent-dim);
+      border: 1px solid var(--accent-ring); border-radius: 3px; padding: 5px 8px; margin-bottom: 10px;
+    }
+    .ag-day { margin-bottom: 14px; }
+    .ag-head {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border-sub);
+      padding-bottom: 3px; margin-bottom: 4px;
+    }
+    .ag-today .ag-head { color: var(--accent); }
+    .ag-add {
+      background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 3px;
+      font-family: var(--mono); font-size: 11px; width: 20px; height: 18px; cursor: pointer;
+    }
+    .ag-add:hover { color: var(--text); border-color: var(--dim); }
+    .ag-item {
+      display: grid; grid-template-columns: 96px 1fr; gap: 0 8px; width: 100%; text-align: left;
+      background: none; border: none; border-left: 2px solid var(--kc, var(--accent));
+      color: var(--text); font-family: var(--mono); font-size: 12px; padding: 4px 6px; cursor: pointer;
+      margin-bottom: 2px; border-radius: 2px;
+    }
+    .ag-item:hover { background: var(--surface-2); }
+    .ag-time { color: var(--muted); font-size: 11px; }
+    .ag-loc { grid-column: 2; color: var(--dim); font-size: 11px; }
+    .ag-icon { color: var(--dim); font-size: 10px; }
+    .ag-empty { color: var(--dim); font-size: 11px; padding: 2px 0 2px 8px; }
+    .ag-more { margin-top: 4px; }
+
+    .cal-form, .cal-roster { padding: 16px; }
+    .cal-row { display: flex; gap: 10px; align-items: flex-end; }
+    .cal-row .form-field { flex: 1; }
+    .cal-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); margin: 0 10px 6px 0; }
+    .cal-allday { margin-bottom: 18px; }
+    .cal-error {
+      font-size: 12px; color: var(--danger); background: var(--danger-dim);
+      border: 1px solid rgba(248,81,73,.3); border-radius: 3px; padding: 6px 8px; margin-bottom: 10px;
+    }
+    .cal-hint { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+    .cal-days { display: flex; gap: 4px; flex-wrap: wrap; }
+    .cal-daybox input { display: none; }
+    .cal-daybox span {
+      display: inline-block; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px;
+      font-size: 11px; color: var(--muted); cursor: pointer;
+    }
+    .cal-daybox input:checked + span { color: var(--accent); border-color: var(--accent-ring); background: var(--accent-dim); }
+    .cal-ends-row { display: flex; flex-direction: column; }
+    .form-input.cal-inline { display: inline-block; width: auto; padding: 2px 6px; }
+    .cal-count { width: 70px !important; }
+    .cal-rem { display: flex; flex-wrap: wrap; }
+    .cal-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .cal-weekly, .cal-ends, .cal-rem-allday { display: none; }
+    .cal-form:has(select[name=repeat] option[value=weekly]:checked) .cal-weekly,
+    .cal-form:has(select[name=repeat] option[value=fortnightly]:checked) .cal-weekly { display: block; }
+    .cal-form:not(:has(select[name=repeat] option[value=none]:checked)) .cal-ends { display: block; }
+    .cal-form:has(input[name=all_day]:checked) .cal-timed,
+    .cal-form:has(input[name=all_day]:checked) .cal-rem-timed { display: none; }
+    .cal-form:has(input[name=all_day]:checked) .cal-rem-allday { display: flex; }
+    .cal-form textarea.form-input { min-height: 0; height: auto; resize: vertical; }
+    .cal-roster-text { font-size: 12px; }
+    .cal-roster-table { font-size: 12px; border-collapse: collapse; margin-bottom: 12px; }
+    .cal-roster-table td { padding: 3px 12px 3px 0; }
+    .cal-roster-table .cal-off td { color: var(--dim); }
+
+    @media (max-width: 680px) {
+      body.calendar-open .calendar-space { height: calc(100dvh - var(--topbar)); }
+      .cal-wrap { grid-template-columns: minmax(0, 1fr); }
+      .cal-main { border-right: none; }
+      .cal-week { --cal-row: 78px; }
+      .cal-day { padding: 2px 2px; }
+      .cal-chip { font-size: 9px; line-height: 13px; padding: 0 2px; }
+      .cal-chip-time { display: none; }
+      .cal-side {
+        position: fixed; top: var(--topbar); left: 0; width: 100%;
+        height: calc(100dvh - var(--topbar)); z-index: 15;
+        transform: translateX(100%); transition: transform 200ms ease;
+      }
+      body.cal-side-open .cal-side { transform: translateX(0); }
+      .cal-side-close {
+        display: block; margin: 10px 14px 0; background: none; border: none;
+        color: var(--accent); font-family: var(--mono); font-size: 13px; cursor: pointer; padding: 0;
+      }
+      .cal-tools .act-s, .cal-tools .act-p { padding: 4px 8px; }
+    }
   </style>
 </head>
 <body hx-headers='{"X-CSRF-Token":"{{.CSRFToken}}"}'{{if .VAPIDPublicKey}} data-vapid-key="{{.VAPIDPublicKey}}"{{end}}>
@@ -821,6 +969,7 @@
       <button class="f" data-stream="imap">imap</button>
       <!-- Standalone views -->
       <button class="f" id="sent-btn">sent</button>
+      <button class="f" id="calendar-btn">calendar</button>
       <span class="sep"></span>
       <button class="f{{if .IMAPAuthFailed}} f--warn{{end}}" hx-get="/ui/accounts" hx-target="#reading-pane" hx-swap="innerHTML">accounts{{if .IMAPAuthFailed}} ⚠{{end}}</button>
     </nav>
@@ -856,6 +1005,8 @@
       </div>
     </div>
   </div>
+
+  <div class="calendar-space" id="calendar-space"></div>
 
   <script nonce="{{.CSPNonce}}">
     (function() {
@@ -942,6 +1093,9 @@
           b.classList.toggle('active', activePage === 'messages' && b.dataset.stream === activeStream);
         });
         document.getElementById('sent-btn').classList.toggle('active', activePage === 'sent');
+        document.getElementById('calendar-btn').classList.toggle('active', activePage === 'calendar');
+        document.body.classList.toggle('calendar-open', activePage === 'calendar');
+        if (activePage !== 'calendar') document.body.classList.remove('cal-side-open');
       }
 
       // Filter/stream change: reload list, then re-highlight the active row
@@ -1155,6 +1309,173 @@
         if (e.target.closest('.dm-custom')) return;
         closeAllDropdowns();
       });
+
+      // ── Calendar ────────────────────────────────────────────────
+      // Weeks scroll vertically without end (bounded server-side); more
+      // weeks load as either edge approaches. Rows have a fixed height, so
+      // prepending keeps the view steady by adding the inserted height.
+      var calSpace = document.getElementById('calendar-space');
+      var calLoading = false;
+      var calSelected = null;
+      var CAL_CHUNK = 26;
+
+      function isoAdd(date, days) {
+        var p = date.split('-').map(Number);
+        return new Date(Date.UTC(p[0], p[1] - 1, p[2] + days)).toISOString().slice(0, 10);
+      }
+      function todayISO() {
+        return new Intl.DateTimeFormat('en-CA', {timeZone: 'Australia/Sydney'}).format(new Date());
+      }
+      function weekOf(date) {
+        var p = date.split('-').map(Number);
+        var wd = new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay();
+        return isoAdd(date, -((wd + 6) % 7));
+      }
+      function calEls() {
+        return {
+          scroll: document.getElementById('cal-scroll'),
+          grid: document.getElementById('cal-grid'),
+          label: document.getElementById('cal-month-label')
+        };
+      }
+      function calPanel(url) {
+        htmx.ajax('GET', url, {target: '#cal-panel', swap: 'innerHTML'});
+        if (window.matchMedia('(max-width: 680px)').matches) document.body.classList.add('cal-side-open');
+      }
+      function markSelected() {
+        document.querySelectorAll('.cal-day.selected').forEach(function(d) { d.classList.remove('selected'); });
+        if (!calSelected) return;
+        var cell = document.querySelector('.cal-day[data-date="' + calSelected + '"]');
+        if (cell) cell.classList.add('selected');
+      }
+      function scrollToWeek(week, smooth) {
+        var el = calEls();
+        var row = el.grid && el.grid.querySelector('[data-week="' + week + '"]');
+        if (!row) return;
+        el.scroll.scrollTo({top: Math.max(0, row.offsetTop - row.offsetHeight), behavior: smooth ? 'smooth' : 'auto'});
+      }
+      function updateMonthLabel() {
+        var el = calEls();
+        if (!el.grid || !el.grid.firstElementChild) return;
+        var rowH = el.grid.firstElementChild.offsetHeight || 1;
+        // The row a third of the way down names the month in view.
+        var idx = Math.min(Math.floor((el.scroll.scrollTop + el.scroll.clientHeight / 3) / rowH), el.grid.children.length - 1);
+        el.label.textContent = el.grid.children[idx].dataset.label;
+      }
+      function loadWeeks(dir) {
+        var el = calEls();
+        if (!el.grid || calLoading) return;
+        var g = el.grid.dataset, from;
+        if (dir === 'down') {
+          if (g.last >= g.max) return;
+          from = isoAdd(g.last, 7);
+        } else {
+          if (g.first <= g.min) return;
+          from = isoAdd(g.first, -7 * CAL_CHUNK);
+        }
+        calLoading = true;
+        fetch('/ui/calendar/weeks?from=' + from + '&count=' + CAL_CHUNK, {credentials: 'same-origin'})
+          .then(function(r) { if (!r.ok) throw new Error('weeks'); return r.text(); })
+          .then(function(html) {
+            if (dir === 'down') {
+              el.grid.insertAdjacentHTML('beforeend', html);
+              g.last = isoAdd(from, 7 * (CAL_CHUNK - 1));
+            } else {
+              var before = el.scroll.scrollHeight;
+              el.grid.insertAdjacentHTML('afterbegin', html);
+              el.scroll.scrollTop += el.scroll.scrollHeight - before;
+              g.first = from;
+            }
+            markSelected();
+          })
+          .catch(function() { console.error('calendar weeks failed to load'); })
+          .finally(function() { calLoading = false; });
+      }
+      // After a save/delete/import, re-render the loaded weeks in place.
+      function refreshCalendarGrid() {
+        var el = calEls();
+        if (!el.grid) return;
+        var g = el.grid.dataset;
+        var weeks = Math.round((Date.parse(g.last) - Date.parse(g.first)) / 604800000) + 1;
+        var top = el.scroll.scrollTop;
+        fetch('/ui/calendar/weeks?from=' + g.first + '&count=' + weeks, {credentials: 'same-origin'})
+          .then(function(r) { if (!r.ok) throw new Error('weeks'); return r.text(); })
+          .then(function(html) { el.grid.innerHTML = html; el.scroll.scrollTop = top; markSelected(); })
+          .catch(function() { console.error('calendar refresh failed'); });
+      }
+      function initCalendar(date) {
+        var el = calEls();
+        if (!el.grid) return;
+        calSelected = date || todayISO();
+        markSelected();
+        scrollToWeek(el.grid.dataset.focus, false);
+        updateMonthLabel();
+        var ticking = false;
+        el.scroll.addEventListener('scroll', function() {
+          if (ticking) return;
+          ticking = true;
+          requestAnimationFrame(function() {
+            ticking = false;
+            updateMonthLabel();
+            var rowH = el.grid.firstElementChild ? el.grid.firstElementChild.offsetHeight : 100;
+            if (el.scroll.scrollTop < rowH * 8) loadWeeks('up');
+            if (el.scroll.scrollHeight - el.scroll.scrollTop - el.scroll.clientHeight < rowH * 8) loadWeeks('down');
+          });
+        }, {passive: true});
+      }
+      function openCalendar(date) {
+        activePage = 'calendar';
+        updateNavState();
+        closeDetail();
+        var url = '/ui/calendar' + (date ? '?date=' + encodeURIComponent(date) : '');
+        htmx.ajax('GET', url, {target: '#calendar-space', swap: 'innerHTML'}).then(function() { initCalendar(date); });
+      }
+
+      document.getElementById('calendar-btn').addEventListener('click', function() { openCalendar(null); });
+      calSpace.addEventListener('click', function(e) {
+        var chip = e.target.closest('.cal-chip');
+        if (chip) {
+          calPanel('/ui/calendar/event?id=' + chip.dataset.id + '&date=' + chip.dataset.date);
+          return;
+        }
+        var day = e.target.closest('.cal-day');
+        if (day) {
+          calSelected = day.dataset.date;
+          markSelected();
+          calPanel('/ui/calendar/agenda?from=' + calSelected);
+          return;
+        }
+        if (e.target.closest('#cal-today')) {
+          calSelected = todayISO();
+          markSelected();
+          scrollToWeek(weekOf(calSelected), true);
+          calPanel('/ui/calendar/agenda?from=' + calSelected);
+        } else if (e.target.closest('#cal-new')) {
+          calPanel('/ui/calendar/event?date=' + (calSelected || todayISO()));
+        } else if (e.target.closest('#cal-roster')) {
+          calPanel('/ui/calendar/roster');
+        } else if (e.target.closest('#cal-side-close')) {
+          document.body.classList.remove('cal-side-open');
+        }
+      });
+      document.body.addEventListener('calendar-changed', refreshCalendarGrid);
+      // Mail views opened from the top bar (accounts, compose, search) or by
+      // keyboard shortcut leave the calendar. Background loads such as the
+      // inbox's initial fetch do not.
+      document.body.addEventListener('htmx:beforeRequest', function(e) {
+        var t = e.detail.target, src = e.detail.elt;
+        var navigation = src === document.body || (src && src.closest && src.closest('.topbar'));
+        if (activePage === 'calendar' && navigation && t && (t.id === 'reading-pane' || t.id === 'message-list')) {
+          activePage = 'messages';
+          updateNavState();
+        }
+      });
+      // Reminder notifications open /?calendar=YYYY-MM-DD.
+      var notifCalDate = (location.search.match(/[?&]calendar=(\d{4}-\d{2}-\d{2})/) || [])[1] || null;
+      if (notifCalDate) {
+        history.replaceState(null, '', location.pathname);
+        openCalendar(notifCalDate);
+      }
 
       // ── Keyboard shortcuts ────────────────────────────────────────
       // Not active when focus is inside a text field.

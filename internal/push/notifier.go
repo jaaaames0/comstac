@@ -44,6 +44,8 @@ type newMailNotification struct {
 	from      string
 	messageID int64
 	reminder  bool
+	// event is set for calendar reminders, which carry a prepared payload.
+	event *payload
 }
 
 func New(db *sql.DB, vapidPublic, vapidPrivate, vapidSubject string, ac *AgentClients) (*Notifier, error) {
@@ -91,6 +93,17 @@ func (n *Notifier) QueueReminder(subject, from string, messageID int64) bool {
 	}
 }
 
+// QueueEventReminder queues a calendar event reminder. url is the in-app page
+// opened when the notification is clicked; tag identifies the occurrence.
+func (n *Notifier) QueueEventReminder(title, body, url, tag string) bool {
+	select {
+	case n.queue <- newMailNotification{event: &payload{Title: title, Body: body, URL: url, Tag: tag}}:
+		return true
+	default:
+		return false
+	}
+}
+
 // Run processes the bounded notification queue with a fixed worker count.
 func (n *Notifier) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
@@ -104,7 +117,9 @@ func (n *Notifier) Run(ctx context.Context) error {
 					return
 				case event := <-n.queue:
 					deliveryCtx, cancel := context.WithTimeout(ctx, notificationTimeout)
-					if event.reminder {
+					if event.event != nil {
+						n.sendPush(deliveryCtx, "event", reminderTTL, *event.event)
+					} else if event.reminder {
 						n.SendReminder(deliveryCtx, event.subject, event.from, event.messageID)
 					} else {
 						n.SendNewMail(deliveryCtx, event.subject, event.from, event.messageID)
@@ -161,6 +176,8 @@ type payload struct {
 	// Tag identifies the notification on the device. Distinct tags keep a
 	// burst of mail from collapsing into a single notification.
 	Tag string `json:"tag,omitempty"`
+	// URL is the in-app path opened on click; defaults to the message.
+	URL string `json:"url,omitempty"`
 }
 
 // Delivery settings. A short TTL makes the push service discard a message

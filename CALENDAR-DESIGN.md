@@ -1,6 +1,15 @@
 # Calendar design
 
-Status: agreed design, 2026-10-02. Not yet implemented beyond step 1.
+Status: agreed design, 2026-10-02. Steps 1 (push reliability) and 2
+(calendar core) are implemented; steps 3 and 4 are not.
+
+Step 2 as built: `internal/calendar` (RRULE subset, occurrence expansion,
+roster parser), `internal/store/calendar.go` with migration 0016,
+`internal/scheduler` (snoozes and event reminders, 6 h catch-up grace, one
+claim row per sent reminder), and the calendar page (`internal/ui/calendar.go`,
+`templates/calendar.html`). Not yet built from the design: suggestions and the
+`suggested`/`dismissed` statuses in the UI, per-event time zones other than
+Australia/Sydney in the form, and multi-day timed events spanning the grid.
 
 ## Goals
 

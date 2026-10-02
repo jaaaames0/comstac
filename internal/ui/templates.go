@@ -34,6 +34,7 @@ func init() {
 		"authClass":   authClass,
 		"actionBtn":   actionBtn,
 		"fmtSnooze":   fmtSnooze,
+		"fmtDay":      fmtDay,
 		"json": func(v any) string {
 			b, _ := json.Marshal(v)
 			return string(b)
@@ -343,4 +344,16 @@ func fmtSnooze(s string) string {
 		return s
 	}
 	return t.In(sydneyLoc).Format("Mon 2 Jan 15:04")
+}
+
+// HomeLocation is the operator's display time zone (Australia/Sydney).
+func HomeLocation() *time.Location { return sydneyLoc }
+
+// fmtDay formats a YYYY-MM-DD date as "Mon 2 Jan".
+func fmtDay(s string) string {
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return s
+	}
+	return t.Format("Mon 2 Jan")
 }

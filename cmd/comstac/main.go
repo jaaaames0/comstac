@@ -21,9 +21,9 @@ import (
 	"comstac/internal/ingest"
 	"comstac/internal/push"
 	"comstac/internal/relay"
+	"comstac/internal/scheduler"
 	"comstac/internal/securitymetrics"
 	"comstac/internal/smtpserver"
-	"comstac/internal/snooze"
 	"comstac/internal/storageguard"
 	"comstac/internal/store"
 	syncer "comstac/internal/sync"
@@ -233,12 +233,12 @@ func main() {
 	go func() { errCh <- apiSrv.Run(runCtx) }()
 	go func() { errCh <- syncRunner.Run(runCtx) }()
 	// A nil *push.Notifier must not become a non-nil interface value.
-	var reminders snooze.ReminderNotifier
+	var reminders scheduler.Notifier
 	if pushNotifier != nil {
 		reminders = pushNotifier
 	}
 	workers++
-	go func() { errCh <- snooze.NewWaker(db, 30*time.Second, reminders).Run(runCtx) }()
+	go func() { errCh <- scheduler.New(db, 30*time.Second, reminders, ui.HomeLocation()).Run(runCtx) }()
 	if pushNotifier != nil {
 		workers++
 		go func() { errCh <- pushNotifier.Run(runCtx) }()

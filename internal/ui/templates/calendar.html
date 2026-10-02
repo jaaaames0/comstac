@@ -1,0 +1,181 @@
+{{define "calendar_view"}}
+<div class="cal-wrap">
+  <div class="cal-main">
+    <div class="cal-toolbar">
+      <span class="cal-month-label" id="cal-month-label"></span>
+      <div class="cal-tools">
+        <button class="act-s" type="button" id="cal-today">today</button>
+        <button class="act-s" type="button" id="cal-roster">roster</button>
+        <button class="act-p" type="button" id="cal-new">+ event</button>
+      </div>
+    </div>
+    <div class="cal-dow"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+    <div class="cal-scroll" id="cal-scroll">
+      <div class="cal-grid" id="cal-grid" data-first="{{.First}}" data-last="{{.Last}}" data-focus="{{.Focus}}" data-min="{{.MinDay}}" data-max="{{.MaxDay}}">
+        {{template "calendar_weeks" .}}
+      </div>
+    </div>
+  </div>
+  <aside class="cal-side">
+    <button class="cal-side-close" type="button" id="cal-side-close">← calendar</button>
+    <div id="cal-panel">{{template "calendar_agenda" .Agenda}}</div>
+  </aside>
+</div>
+{{end}}
+
+{{define "calendar_weeks"}}{{range .Weeks}}<div class="cal-week" data-week="{{.Start}}" data-label="{{.Label}}">{{range .Days}}<div class="cal-day{{if .OddMonth}} cal-odd{{end}}{{if .Today}} cal-today{{end}}{{if .Past}} cal-past{{end}}{{if .EdgeTop}} cal-edge-top{{end}}{{if .EdgeLeft}} cal-edge-left{{end}}" data-date="{{.Date}}"><div class="cal-num">{{if .MonthLabel}}<span class="cal-mon">{{.MonthLabel}}</span>{{end}}<span class="cal-n">{{.Num}}</span></div>{{range .Chips}}<button type="button" class="cal-chip k-{{.Kind}}{{if .AllDay}} cal-chip--allday{{end}}" data-id="{{.ID}}" data-date="{{.Date}}">{{if .Time}}<span class="cal-chip-time">{{.Time}}</span> {{end}}{{.Title}}</button>{{end}}{{if .More}}<span class="cal-more">+{{.More}} more</span>{{end}}</div>{{end}}</div>{{end}}{{end}}
+
+{{define "calendar_agenda"}}
+<div class="cal-agenda" data-from="{{.From}}">
+  {{if .Notice}}<div class="cal-notice">{{.Notice}}</div>{{end}}
+  {{range .Days}}
+  <div class="ag-day{{if .Today}} ag-today{{end}}">
+    <div class="ag-head">
+      <span>{{.Label}}{{if .Today}} · today{{end}}</span>
+      <button class="ag-add" type="button" title="add event on this day"
+              hx-get="/ui/calendar/event?date={{.Date}}" hx-target="#cal-panel" hx-swap="innerHTML">+</button>
+    </div>
+    {{range .Items}}
+    <button type="button" class="ag-item k-{{.Kind}}"
+            hx-get="/ui/calendar/event?id={{.ID}}&date={{.Date}}" hx-target="#cal-panel" hx-swap="innerHTML">
+      <span class="ag-time">{{.Time}}</span>
+      <span class="ag-title">{{.Title}}{{if .Repeats}} <span class="ag-icon" title="repeats">↻</span>{{end}}{{if .Reminder}} <span class="ag-icon" title="reminder set">⏰</span>{{end}}</span>
+      {{if .Location}}<span class="ag-loc">{{.Location}}</span>{{end}}
+    </button>
+    {{else}}
+    <div class="ag-empty">nothing scheduled</div>
+    {{end}}
+  </div>
+  {{end}}
+  <button class="act-s ag-more" type="button"
+          hx-get="/ui/calendar/agenda?from={{.NextFrom}}" hx-target="#cal-panel" hx-swap="innerHTML">later →</button>
+</div>
+{{end}}
+
+{{define "calendar_event_form"}}
+<form class="form-pane cal-form" hx-post="/ui/calendar/event" hx-target="#cal-panel" hx-swap="innerHTML">
+  <div class="form-title">{{if .ID}}edit event{{else}}new event{{end}}</div>
+  {{if .Error}}<div class="cal-error">{{.Error}}</div>{{end}}
+  {{if and .ID (ne .Source "manual")}}<p class="cal-hint">added from {{.Source}}</p>{{end}}
+  <input type="hidden" name="id" value="{{.ID}}"/>
+  <input type="hidden" name="occ_date" value="{{.OccDate}}"/>
+  <div class="form-field">
+    <label class="form-label">title</label>
+    <input class="form-input" name="title" value="{{.Title}}" required maxlength="200" autocomplete="off"/>
+  </div>
+  <div class="cal-row">
+    <div class="form-field">
+      <label class="form-label">kind</label>
+      <select class="form-input" name="kind">{{range .Kinds}}<option value="{{.}}"{{if eq . $.Kind}} selected{{end}}>{{.}}</option>{{end}}</select>
+    </div>
+    <label class="cal-check cal-allday"><input type="checkbox" name="all_day" value="1"{{if .AllDay}} checked{{end}}/> all day</label>
+  </div>
+  <div class="cal-row">
+    <div class="form-field">
+      <label class="form-label">starts</label>
+      <input class="form-input" type="date" name="start_date" value="{{.StartDate}}" required/>
+    </div>
+    <div class="form-field cal-timed">
+      <label class="form-label">time</label>
+      <input class="form-input" type="time" name="start_time" value="{{.StartTime}}"/>
+    </div>
+  </div>
+  <div class="cal-row">
+    <div class="form-field">
+      <label class="form-label">ends</label>
+      <input class="form-input" type="date" name="end_date" value="{{.EndDate}}"/>
+    </div>
+    <div class="form-field cal-timed">
+      <label class="form-label">time</label>
+      <input class="form-input" type="time" name="end_time" value="{{.EndTime}}"/>
+    </div>
+  </div>
+  <div class="form-field">
+    <label class="form-label">location</label>
+    <input class="form-input" name="location" value="{{.Location}}" maxlength="200" autocomplete="off"/>
+  </div>
+  <div class="form-field">
+    <label class="form-label">notes</label>
+    <textarea class="form-input" name="notes" rows="3" maxlength="4000">{{.Notes}}</textarea>
+  </div>
+  <div class="form-field">
+    <label class="form-label">repeat</label>
+    <select class="form-input" name="repeat">
+      <option value="none"{{if eq .Repeat "none"}} selected{{end}}>does not repeat</option>
+      <option value="daily"{{if eq .Repeat "daily"}} selected{{end}}>daily</option>
+      <option value="weekly"{{if eq .Repeat "weekly"}} selected{{end}}>weekly</option>
+      <option value="fortnightly"{{if eq .Repeat "fortnightly"}} selected{{end}}>fortnightly</option>
+      <option value="monthly"{{if eq .Repeat "monthly"}} selected{{end}}>monthly (same date)</option>
+      <option value="yearly"{{if eq .Repeat "yearly"}} selected{{end}}>yearly</option>
+    </select>
+  </div>
+  <div class="form-field cal-weekly">
+    <label class="form-label">on</label>
+    <div class="cal-days">{{range .Weekdays}}<label class="cal-daybox"><input type="checkbox" name="byday" value="{{.}}"{{if index $.ByDay .}} checked{{end}}/><span>{{.}}</span></label>{{end}}</div>
+  </div>
+  <div class="form-field cal-ends">
+    <label class="form-label">until</label>
+    <div class="cal-ends-row">
+      <label class="cal-check"><input type="radio" name="ends" value="never"{{if eq .Ends "never"}} checked{{end}}/> forever</label>
+      <label class="cal-check"><input type="radio" name="ends" value="until"{{if eq .Ends "until"}} checked{{end}}/> date <input class="form-input cal-inline" type="date" name="until" value="{{.Until}}"/></label>
+      <label class="cal-check"><input type="radio" name="ends" value="count"{{if eq .Ends "count"}} checked{{end}}/> <input class="form-input cal-inline cal-count" type="number" name="count" min="1" max="1000" value="{{if .Count}}{{.Count}}{{end}}"/> times</label>
+    </div>
+  </div>
+  <div class="form-field">
+    <label class="form-label">remind me</label>
+    <div class="cal-rem cal-rem-timed">{{range .TimedPreset}}<label class="cal-check"><input type="checkbox" name="reminder" value="{{.Minutes}}"{{if index $.Reminders .Minutes}} checked{{end}}/> {{.Label}}</label>{{end}}</div>
+    <div class="cal-rem cal-rem-allday">{{range .AllDayPre}}<label class="cal-check"><input type="checkbox" name="reminder" value="{{.Minutes}}"{{if index $.Reminders .Minutes}} checked{{end}}/> {{.Label}}</label>{{end}}</div>
+  </div>
+  {{if .Repeating}}<p class="cal-hint">repeats {{.RepeatDesc}}. Changes apply to the whole series.</p>{{end}}
+  <div class="cal-actions">
+    <button class="act-p" type="submit">save</button>
+    {{if .ID}}
+    {{if and .Repeating .OccDate}}
+    <button class="act-s" type="button" hx-post="/ui/calendar/event/delete" hx-target="#cal-panel" hx-swap="innerHTML"
+            hx-vals='{"scope":"occurrence","date":"{{.OccDate}}"}'>skip {{fmtDay .OccDate}}</button>
+    {{end}}
+    <button class="act-trash" type="button" hx-post="/ui/calendar/event/delete" hx-target="#cal-panel" hx-swap="innerHTML"
+            hx-vals='{"scope":"series","date":"{{.OccDate}}"}' hx-confirm="Delete “{{.Title}}”{{if .Repeating}} and all its repeats{{end}}?">delete{{if .Repeating}} series{{end}}</button>
+    {{end}}
+    <button class="act-s" type="button" hx-get="/ui/calendar/agenda?from={{.StartDate}}" hx-target="#cal-panel" hx-swap="innerHTML">cancel</button>
+  </div>
+</form>
+{{end}}
+
+{{define "calendar_roster"}}
+<div class="form-pane cal-roster">
+  <div class="form-title">import roster</div>
+  {{if .Days}}
+  <p class="cal-hint">{{.Shifts}} shift{{if ne .Shifts 1}}s{{end}} found{{if .Replacing}}. Replaces {{.Replacing}} roster shift{{if ne .Replacing 1}}s{{end}} already in this range{{end}}.</p>
+  <table class="cal-roster-table">
+    {{range .Days}}
+    <tr{{if .NoShift}} class="cal-off"{{end}}>
+      <td>{{fmtDay .Date}}</td>
+      <td>{{if .NoShift}}off{{else}}{{.Start}}–{{.End}}{{end}}</td>
+      <td>{{.Location}}</td>
+    </tr>
+    {{end}}
+  </table>
+  <form hx-post="/ui/calendar/roster/import" hx-target="#cal-panel" hx-swap="innerHTML">
+    <textarea name="text" hidden>{{.Text}}</textarea>
+    <div class="form-field">
+      <label class="form-label">remind me</label>
+      <select class="form-input" name="reminder">{{range .Reminders}}<option value="{{.Minutes}}"{{if eq .Minutes $.Reminder}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+    </div>
+    <div class="cal-actions">
+      <button class="act-p" type="submit">add {{.Shifts}} shift{{if ne .Shifts 1}}s{{end}}</button>
+      <button class="act-s" type="button" hx-get="/ui/calendar/roster" hx-target="#cal-panel" hx-swap="innerHTML">start over</button>
+    </div>
+  </form>
+  {{else}}
+  <p class="cal-hint">Paste the roster text copied from the roster app. You'll see the shifts before anything is added.</p>
+  {{if .Error}}<div class="cal-error">{{.Error}}</div>{{end}}
+  <form hx-post="/ui/calendar/roster/preview" hx-target="#cal-panel" hx-swap="innerHTML">
+    <textarea class="form-input cal-roster-text" name="text" rows="14" required placeholder="Mon&#10;No Shift&#10;28&#10;Tue&#10;11:45 AM - 08:30 PM&#10;29&#10;…">{{.Text}}</textarea>
+    <div class="cal-actions">
+      <button class="act-p" type="submit">preview</button>
+    </div>
+  </form>
+  {{end}}
+</div>
+{{end}}

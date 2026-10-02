@@ -41,6 +41,8 @@ type PushTester interface {
 const pushLogLimit = 15
 
 func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UIConfig) {
+	registerCalendarRoutes(mux, db)
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/" {
 			http.NotFound(w, req)

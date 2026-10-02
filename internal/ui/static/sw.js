@@ -12,15 +12,17 @@ self.addEventListener('push', function(event) {
     badge: '/static/icon-192.png',
     tag: data.tag || 'comstac',
     renotify: true,
-    data: { messageId: data.message_id || null }
+    data: { messageId: data.message_id || null, url: data.url || null }
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
-  var messageId = event.notification.data && event.notification.data.messageId;
-  var target = messageId ? '/?msg=' + messageId : '/';
+  var data = event.notification.data || {};
+  // Only same-origin relative paths are honoured.
+  var target = (typeof data.url === 'string' && /^\/(?![\/\\])/.test(data.url)) ? data.url
+    : (data.messageId ? '/?msg=' + data.messageId : '/');
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(list) {
       for (var i = 0; i < list.length; i++) {
