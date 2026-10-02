@@ -1,5 +1,5 @@
-// Package scheduler runs time-based work: resurfacing expired snoozes and
-// sending calendar event reminders.
+// Package scheduler runs time-based work: resurfacing expired snoozes,
+// sending calendar event reminders and scanning new mail for dates.
 package scheduler
 
 import (
@@ -62,6 +62,9 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 	if err := s.sendEventReminders(ctx, now); err != nil {
 		slog.Error("event reminders", "component", "scheduler", "err", err)
+	}
+	if err := s.scanForDates(ctx, now); err != nil {
+		slog.Error("scan mail for dates", "component", "scheduler", "err", err)
 	}
 }
 

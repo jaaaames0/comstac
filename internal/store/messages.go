@@ -242,7 +242,7 @@ func GetMessageDetail(ctx context.Context, db *sql.DB, id int64) (*MessageDetail
 	if d.BodyText == "" {
 		d.BodyText = "(no body)"
 	}
-	d.BodyHTML = extractBodyHTML(rawMIME)
+	d.BodyHTML = ExtractBodyHTML(rawMIME)
 	d.Read = readInt != 0
 	d.Archived = archivedInt != 0
 	d.Spam = spamInt != 0
@@ -445,9 +445,9 @@ func ExtractBodyText(rawMIME []byte) string {
 	return strings.TrimSpace(extractBodyPart(msg.Header.Get("Content-Type"), msg.Header.Get("Content-Transfer-Encoding"), msg.Body))
 }
 
-// extractBodyHTML returns the raw HTML content of a message, if any.
+// ExtractBodyHTML returns the raw HTML content of a message, if any.
 // Returns empty string for plain-text-only messages.
-func extractBodyHTML(rawMIME []byte) string {
+func ExtractBodyHTML(rawMIME []byte) string {
 	msg, err := mail.ReadMessage(bytes.NewReader(rawMIME))
 	if err != nil {
 		return ""
@@ -714,4 +714,36 @@ func decodeBody(transferEncoding string, body io.Reader) io.Reader {
 	default:
 		return body
 	}
+}
+
+// ExtractCalendarParts returns the text of a message's text/calendar or
+// application/ics parts (invitations and "add to calendar" attachments),
+// each capped at 256 KiB.
+func ExtractCalendarParts(rawMIME []byte) []string {
+	msg, err := mail.ReadMessage(bytes.NewReader(rawMIME))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	var walk func(contentType, encoding string, body io.Reader, depth int)
+	walk = func(contentType, encoding string, body io.Reader, depth int) {
+		mediaType, params, _ := mime.ParseMediaType(contentType)
+		switch {
+		case strings.HasPrefix(mediaType, "multipart/") && depth < 8:
+			mr := multipart.NewReader(body, params["boundary"])
+			for {
+				part, err := mr.NextPart()
+				if err != nil {
+					return
+				}
+				walk(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part, depth+1)
+			}
+		case mediaType == "text/calendar" || mediaType == "application/ics":
+			if b, err := io.ReadAll(io.LimitReader(decodeBody(encoding, body), 256*1024)); err == nil {
+				out = append(out, string(b))
+			}
+		}
+	}
+	walk(msg.Header.Get("Content-Type"), msg.Header.Get("Content-Transfer-Encoding"), msg.Body, 0)
+	return out
 }

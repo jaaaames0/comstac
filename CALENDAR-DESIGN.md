@@ -1,15 +1,28 @@
 # Calendar design
 
-Status: agreed design, 2026-10-02. Steps 1 (push reliability) and 2
-(calendar core) are implemented; steps 3 and 4 are not.
+Status: agreed design, 2026-10-02. Steps 1 (push reliability), 2 (calendar
+core) and 3 (rule and template extraction) are implemented; step 4 (AI
+extraction) is not.
 
 Step 2 as built: `internal/calendar` (RRULE subset, occurrence expansion,
-roster parser), `internal/store/calendar.go` with migration 0016,
-`internal/scheduler` (snoozes and event reminders, 6 h catch-up grace, one
-claim row per sent reminder), and the calendar page (`internal/ui/calendar.go`,
-`templates/calendar.html`). Not yet built from the design: suggestions and the
-`suggested`/`dismissed` statuses in the UI, per-event time zones other than
-Australia/Sydney in the form, and multi-day timed events spanning the grid.
+roster parser for the phone and laptop layouts), `internal/store/calendar.go`
+with migration 0016, `internal/scheduler` (snoozes and event reminders, 6 h
+catch-up grace, one claim row per sent reminder), and the calendar page
+(`internal/ui/calendar.go`, `templates/calendar.html`).
+
+Step 3 as built: `internal/extract` (JSON-LD reservations, iCalendar parts,
+Sabre e-tickets, stacked flight tables, hotel check-in/check-out blocks,
+trigger-word rules), migration 0017 (`message_extractions`; dedupe keys unique
+only among confirmed events), a scheduler task that scans inbox mail in
+batches of 40 and on arrival, and the "dates found" strip with add, dismiss,
+update and roster-from-yourself import (`internal/ui/suggestions.go`). Flight
+times use the airport's zone from an embedded table; times embedded in mail
+are not trusted. On the 2026-10-02 mailbox the rules produced 83 candidates
+from six months of mail before de-duplication; the inbox backfill produced 11
+suggestions from 35 messages.
+
+Not yet built: AI extraction (step 4), time-zone choice for manual events,
+and multi-day timed events spanning the grid.
 
 ## Goals
 

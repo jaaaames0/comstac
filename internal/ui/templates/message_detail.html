@@ -111,6 +111,8 @@
   {{end}}
 </div>
 
+<div class="cal-suggest" hx-get="/ui/calendar/suggestions?message={{.ID}}" hx-trigger="load" hx-swap="outerHTML"></div>
+
 {{if .Attachments}}
 <div class="attachments">
   <div class="att-label">attachments</div>

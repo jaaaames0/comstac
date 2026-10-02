@@ -134,6 +134,7 @@ type eventFormData struct {
 	Repeating   bool
 	RepeatDesc  string
 	Source      string
+	TZ          string // shown when the event is not in the home zone
 	Error       string
 	Kinds       []string
 	Weekdays    []string
@@ -218,7 +219,7 @@ func buildWeeks(ctx context.Context, db *sql.DB, first time.Time, count int) (ca
 	for _, o := range occ {
 		chip := calChip{ID: o.Event.ID, Date: o.Date(), Title: o.Event.Title, Kind: o.Event.Kind, AllDay: o.Event.AllDay}
 		if !o.Event.AllDay {
-			chip.Time = o.Start.In(sydneyLoc).Format("15:04")
+			chip.Time = o.Start.Format("15:04") // the event's own zone
 		}
 		for _, d := range occurrenceDays(o) {
 			byDay[d] = append(byDay[d], chip)
@@ -267,22 +268,25 @@ func buildAgenda(ctx context.Context, db *sql.DB, from time.Time, days int) (age
 	byDay := map[string][]agendaItem{}
 	for _, o := range occ {
 		ev := byID[o.Event.ID]
-		start := o.Start.In(sydneyLoc)
+		start := o.Start // the event's own zone, e.g. a flight's departure airport
 		item := agendaItem{ID: ev.ID, Date: o.Date(), Title: ev.Title, Location: ev.Location, Kind: ev.Kind,
 			Repeats: ev.RRule != "", Reminder: len(ev.Reminders) > 0}
-		lastDay := o.End.In(sydneyLoc).AddDate(0, 0, -1)
+		lastDay := o.End.AddDate(0, 0, -1)
 		switch {
 		case ev.AllDay && lastDay.After(start):
 			item.Time = "until " + lastDay.Format("Mon 2 Jan")
 		case ev.AllDay:
 			item.Time = "all day"
 		case o.End.After(o.Start):
-			item.Time = start.Format("15:04") + "–" + o.End.In(sydneyLoc).Format("15:04")
-			if o.End.In(sydneyLoc).Format(calendar.DateLayout) != start.Format(calendar.DateLayout) {
+			item.Time = start.Format("15:04") + "–" + o.End.Format("15:04")
+			if o.End.Format(calendar.DateLayout) != start.Format(calendar.DateLayout) {
 				item.Time += " +1"
 			}
 		default:
 			item.Time = start.Format("15:04")
+		}
+		if !ev.AllDay && ev.TZ != sydneyLoc.String() {
+			item.Time += " " + start.Format("MST")
 		}
 		for _, d := range occurrenceDays(o) {
 			if dt, _ := time.ParseInLocation(calendar.DateLayout, d, sydneyLoc); dt.Before(from) || !dt.Before(to) {
@@ -333,6 +337,9 @@ func eventFormFromStore(ev *store.CalendarEvent, occDate string) eventFormData {
 	f := eventFormData{ID: ev.ID, Title: ev.Title, Kind: ev.Kind, Location: ev.Location, Notes: ev.Notes,
 		AllDay: ev.AllDay, Repeat: "none", Ends: "never", ByDay: map[string]bool{}, Reminders: map[int]bool{},
 		OccDate: occDate, Source: ev.Source}
+	if ev.TZ != sydneyLoc.String() {
+		f.TZ = ev.TZ
+	}
 	if ev.AllDay {
 		f.StartDate, f.EndDate = ev.StartLocal, ev.EndLocal
 		if f.EndDate == "" {
@@ -612,8 +619,10 @@ func registerCalendarRoutes(mux *http.ServeMux, db *sql.DB) {
 				if err != nil || existing == nil {
 					problem = "event not found"
 				} else {
-					// Preserve fields the form does not edit.
+					// Preserve fields the form does not edit. Times on the form
+					// are wall clock in the event's own zone.
 					ev.Source, ev.Status, ev.MessageID, ev.Details, ev.DedupeKey = existing.Source, existing.Status, existing.MessageID, existing.Details, existing.DedupeKey
+					ev.TZ = existing.TZ
 					if ev.RRule == existing.RRule {
 						ev.ExDates = existing.ExDates
 					}

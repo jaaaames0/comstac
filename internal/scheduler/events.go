@@ -71,22 +71,27 @@ func (s *Scheduler) sendEventReminders(ctx context.Context, now time.Time) error
 }
 
 func (s *Scheduler) reminderContent(ev *store.CalendarEvent, occ calendar.Occurrence) (title, body, url, tag string) {
-	start := occ.Start.In(s.loc)
+	// Times read in the event's own zone (a flight's departure airport),
+	// labelled when that differs from the home zone.
+	start := occ.Start
 	if ev.AllDay {
 		body = start.Format("Mon 2 Jan")
 		if days := int(occ.End.Sub(occ.Start).Hours()/24 + 0.5); days > 1 {
-			body += " – " + occ.End.AddDate(0, 0, -1).In(s.loc).Format("Mon 2 Jan")
+			body += " – " + occ.End.AddDate(0, 0, -1).Format("Mon 2 Jan")
 		}
 	} else {
 		body = start.Format("Mon 2 Jan · 15:04")
 		if occ.End.After(occ.Start) {
-			body += "–" + occ.End.In(s.loc).Format("15:04")
+			body += "–" + occ.End.Format("15:04")
+		}
+		if start.Location().String() != s.loc.String() {
+			body += " " + start.Format("MST")
 		}
 	}
 	if ev.Location != "" {
 		body += " · " + ev.Location
 	}
 	return "Reminder: " + ev.Title, body,
-		"/?calendar=" + start.Format(calendar.DateLayout),
+		"/?calendar=" + start.In(s.loc).Format(calendar.DateLayout),
 		fmt.Sprintf("event-%d-%d", ev.ID, occ.Start.Unix())
 }

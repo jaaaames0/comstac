@@ -57,6 +57,7 @@
   <div class="form-title">{{if .ID}}edit event{{else}}new event{{end}}</div>
   {{if .Error}}<div class="cal-error">{{.Error}}</div>{{end}}
   {{if and .ID (ne .Source "manual")}}<p class="cal-hint">added from {{.Source}}</p>{{end}}
+  {{if .TZ}}<p class="cal-hint">times are local to {{.TZ}}</p>{{end}}
   <input type="hidden" name="id" value="{{.ID}}"/>
   <input type="hidden" name="occ_date" value="{{.OccDate}}"/>
   <div class="form-field">
@@ -178,4 +179,50 @@
   </form>
   {{end}}
 </div>
+{{end}}
+
+{{define "calendar_suggestions"}}
+<div class="cal-suggest" id="cal-suggest-{{.MessageID}}">{{if or .Items .Roster .Notice}}
+  <div class="cs-head">dates found</div>
+  {{if .Notice}}<div class="cs-notice">{{.Notice}}</div>{{end}}
+  {{range .Items}}
+  <div class="cs-item k-{{.Kind}}{{if .Added}} cs-added{{end}}">
+    <div class="cs-main">
+      <span class="cs-when">{{.When}}</span>
+      <span class="cs-title">{{.Title}}</span>
+      {{if .Location}}<span class="cs-loc">{{.Location}}</span>{{end}}
+      {{if .UpdatesWhen}}<span class="cs-update">changes your event from {{.UpdatesWhen}}</span>{{end}}
+    </div>
+    <div class="cs-acts">
+      {{if .Added}}
+      <a class="cs-link" href="/?calendar={{.Date}}">in calendar ✓</a>
+      {{else}}
+      <button class="act-p cs-btn" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
+              hx-vals='{"id":"{{.ID}}","message":"{{$.MessageID}}","action":"accept"}'>{{if .UpdatesWhen}}update{{else}}add{{end}}</button>
+      <button class="act-s cs-btn" type="button" title="dismiss" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
+              hx-vals='{"id":"{{.ID}}","message":"{{$.MessageID}}","action":"dismiss"}'>×</button>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+  {{with .Roster}}
+  <div class="cs-item k-shift">
+    <div class="cs-main">
+      {{if .Error}}
+      <span class="cs-title">roster could not be read: {{.Error}}</span>
+      {{else}}
+      <span class="cs-when">{{fmtDay .From}} – {{fmtDay .To}}</span>
+      <span class="cs-title">roster · {{.Shifts}} shift{{if ne .Shifts 1}}s{{end}}</span>
+      <span class="cs-loc">replaces roster shifts already in this range; reminders 1 hour before</span>
+      {{end}}
+    </div>
+    {{if not .Error}}
+    <div class="cs-acts">
+      <button class="act-p cs-btn" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
+              hx-vals='{"message":"{{$.MessageID}}","action":"roster"}'>import</button>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+  {{end}}</div>
 {{end}}
