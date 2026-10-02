@@ -89,6 +89,35 @@
     <p style="color:var(--muted);font-size:12px">not configured. Run <code>comstac vapid</code> to generate keys and add them to your environment.</p>
   </div>
   {{end}}
+  {{with .AI}}{{template "ai_section" .}}{{end}}
+</div>
+{{end}}
+
+{{define "ai_section"}}
+<div id="ai-section" style="margin-top:20px;padding:12px 14px;background:color-mix(in srgb,var(--surface) 60%,transparent);border:1px solid var(--border);border-radius:4px">
+  <div style="font-weight:600;font-size:12px;margin-bottom:6px">AI date extraction</div>
+  <p style="color:var(--muted);font-size:12px;margin-bottom:8px">
+    {{.Model}} · today {{.Today.Calls}} of {{.DailyLimit}} calls, {{.TodayCost}} · last 30 days {{.Month.Calls}} calls, {{.MonthCost}}
+    ({{.Month.InputTokens}} input / {{.Month.OutputTokens}} output tokens)
+  </p>
+  <p style="color:var(--dim);font-size:11px;margin-bottom:8px">
+    New inbox mail from these sender domains is checked with AI automatically. Other mail is only sent when you press "find dates with AI".
+  </p>
+  {{if .Error}}<p style="color:var(--danger);font-size:11px;margin-bottom:6px">{{.Error}}</p>{{end}}
+  {{range .Domains}}
+  <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:4px">
+    <span>{{.}}</span>
+    <button class="act-s" type="button" style="padding:1px 7px;font-size:11px" hx-post="/ui/ai/senders" hx-target="#ai-section" hx-swap="outerHTML"
+            hx-vals='{"action":"remove","domain":"{{.}}"}'>remove</button>
+  </div>
+  {{else}}
+  <p style="color:var(--dim);font-size:11px;margin-bottom:6px">no automatic senders</p>
+  {{end}}
+  <form style="display:flex;gap:6px;margin-top:6px" hx-post="/ui/ai/senders" hx-target="#ai-section" hx-swap="outerHTML">
+    <input type="hidden" name="action" value="add"/>
+    <input class="form-input" name="domain" placeholder="example.com" autocomplete="off" style="max-width:260px"/>
+    <button class="act-p" type="submit">add</button>
+  </form>
 </div>
 {{end}}
 

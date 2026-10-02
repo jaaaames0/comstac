@@ -182,7 +182,7 @@
 {{end}}
 
 {{define "calendar_suggestions"}}
-<div class="cal-suggest" id="cal-suggest-{{.MessageID}}">{{if or .Items .Roster .Notice}}
+<div class="cal-suggest" id="cal-suggest-{{.MessageID}}">{{if or .Items .Roster .Notice .AI}}
   <div class="cs-head">dates found</div>
   {{if .Notice}}<div class="cs-notice">{{.Notice}}</div>{{end}}
   {{range .Items}}
@@ -221,6 +221,18 @@
       <button class="act-p cs-btn" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
               hx-vals='{"message":"{{$.MessageID}}","action":"roster"}'>import</button>
     </div>
+    {{end}}
+  </div>
+  {{end}}
+  {{with .AI}}
+  <div class="cs-ai">
+    <button class="act-s cs-btn cs-ai-btn" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
+            hx-disabled-elt="this" hx-vals='{"message":"{{$.MessageID}}","action":"ai"}'>{{if .LastRun}}check again with AI{{else}}find dates with AI{{end}}</button>
+    {{if .LastRun}}<span class="cs-ai-last">{{.LastRun}}</span>{{end}}
+    {{if .Domain}}
+    <button class="cs-ai-auto{{if .DomainAuto}} on{{end}}" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
+            hx-vals='{"message":"{{$.MessageID}}","action":"{{if .DomainAuto}}ai_sender_off{{else}}ai_sender_on{{end}}"}'
+            title="check new mail from this sender with AI automatically">{{if .DomainAuto}}✓ {{end}}always for {{.Domain}}</button>
     {{end}}
   </div>
   {{end}}

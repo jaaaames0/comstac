@@ -2,7 +2,7 @@
 
 Status: agreed design, 2026-10-02. Steps 1 (push reliability), 2 (calendar
 core) and 3 (rule and template extraction) are implemented; step 4 (AI
-extraction) is not.
+extraction) is built and evaluated against real mail.
 
 Step 2 as built: `internal/calendar` (RRULE subset, occurrence expansion,
 roster parser for the phone and laptop layouts), `internal/store/calendar.go`
@@ -21,7 +21,32 @@ are not trusted. On the 2026-10-02 mailbox the rules produced 83 candidates
 from six months of mail before de-duplication; the inbox backfill produced 11
 suggestions from 35 messages.
 
-Not yet built: AI extraction (step 4), time-zone choice for manual events,
+Step 4 as built: `internal/aiextract` calls NanoGPT's OpenAI-compatible chat
+completions API over plain HTTP (`gemini-2.5-flash-lite` by default) with a
+strict JSON schema, prices calls from NanoGPT's published per-model rates,
+and records the provider request id. `extract.CompactText` (links removed,
+stacked table cells unstacked into rows, 30,000-character cap) is what the
+model sees; `extract.FromProposals` keeps an event only if its evidence words
+appear in order close together in the email and support its date, then
+corrects common slips: flight zones from the airport table, flight titles
+rebuilt, relative dates ("in 14 days") computed from the email date, stays
+made all-day with times in the notes. Migration 0018 (`ai_extraction_runs`,
+`ai_sender_domains`); strip controls "find dates with AI" and "always for
+<domain>"; accounts-page usage and sender list. Disabled unless
+`COMSTAC_NANOGPT_API_KEY` is set; capped by `COMSTAC_AI_DAILY_LIMIT`
+(default 50 calls per Sydney day); never sends spam or trash; failed
+automatic runs are not retried automatically.
+
+Evaluation on 2026-10-03 against 14 real messages (Ticketek, Jetstar booking,
+itinerary and change, Virgin e-tickets, Expedia, Revolut, and noise): after
+the evidence and correction changes, gemini-2.5-flash-lite kept 16 of 16
+correct events on the booking set at about $0.0005 per email;
+qwen/qwen3.7-flash 15 at about $0.0001; openai/gpt-4.1-nano 13 with airport
+and time errors; openai/gpt-5-nano failed every call (provider content-policy
+400); minimax/minimax-m2.7 ignored the schema. No noise email produced an
+event.
+
+Not yet built: time-zone choice for manual events,
 and multi-day timed events spanning the grid.
 
 ## Goals

@@ -280,6 +280,19 @@ type accountsData struct {
 	PushTestResult string
 
 	ImageSenders []store.RemoteImageSender
+
+	AI *aiSettingsView // nil when AI extraction is not configured
+}
+
+type aiSettingsView struct {
+	Model      string
+	DailyLimit int
+	Today      store.AIUsage
+	Month      store.AIUsage
+	TodayCost  string
+	MonthCost  string
+	Domains    []string
+	Error      string
 }
 
 type composeData struct {

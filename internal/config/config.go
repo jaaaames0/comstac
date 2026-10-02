@@ -55,6 +55,11 @@ type Config struct {
 
 	// Agent SSE (ghost-mail integration)
 	AgentToken string
+
+	// AI date extraction (NanoGPT API); disabled when the key is empty.
+	NanoGPTAPIKey string
+	AIModel       string
+	AIDailyLimit  int
 }
 
 var requiredServerEnv = []string{
@@ -158,7 +163,27 @@ func FromEnv() Config {
 		VAPIDSubject:    envOr("COMSTAC_VAPID_SUBJECT", ""),
 
 		AgentToken: envOr("COMSTAC_AGENT_TOKEN", ""),
+
+		NanoGPTAPIKey: envOr("COMSTAC_NANOGPT_API_KEY", ""),
+		AIModel:       envOr("COMSTAC_AI_MODEL", DefaultAIModel),
+		AIDailyLimit:  aiDailyLimit(envOr("COMSTAC_AI_DAILY_LIMIT", "")),
 	}
+}
+
+// DefaultAIModel is the NanoGPT model used when COMSTAC_AI_MODEL is unset.
+const DefaultAIModel = "gemini-2.5-flash-lite"
+
+// aiDailyLimit parses COMSTAC_AI_DAILY_LIMIT; unset means 50 calls a day and
+// an unparseable value -1 so validation reports it.
+func aiDailyLimit(raw string) int {
+	if strings.TrimSpace(raw) == "" {
+		return 50
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return -1
+	}
+	return n
 }
 
 // Validate rejects unsafe or internally inconsistent server configuration.
@@ -272,6 +297,15 @@ func (c Config) Validate() error {
 	}
 	if c.AgentToken != "" && len(c.AgentToken) < 32 {
 		problems = append(problems, "COMSTAC_AGENT_TOKEN must be at least 32 characters when enabled")
+	}
+	if c.NanoGPTAPIKey != "" && (len(c.NanoGPTAPIKey) < 20 || strings.ContainsAny(c.NanoGPTAPIKey, " \t\r\n\"'")) {
+		problems = append(problems, "COMSTAC_NANOGPT_API_KEY must be a NanoGPT API key")
+	}
+	if c.AIDailyLimit < 0 || c.AIDailyLimit > 1000 {
+		problems = append(problems, "COMSTAC_AI_DAILY_LIMIT must be between 0 and 1000")
+	}
+	if c.NanoGPTAPIKey != "" && (strings.TrimSpace(c.AIModel) == "" || strings.ContainsAny(c.AIModel, " \t\"")) {
+		problems = append(problems, "COMSTAC_AI_MODEL must be a model id")
 	}
 
 	if len(problems) > 0 {

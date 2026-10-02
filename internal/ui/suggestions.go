@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"comstac/internal/aiextract"
 	"comstac/internal/calendar"
 	"comstac/internal/store"
 )
@@ -39,6 +40,37 @@ type suggestionStripData struct {
 	Items     []suggestionView
 	Roster    *rosterHint
 	Notice    string
+	AI        *aiStripView // nil when AI is disabled or the message is ineligible
+}
+
+type aiStripView struct {
+	LastRun    string // e.g. "2 found · $0.0021 · Fri 2 Oct 14:02"
+	Domain     string // sender domain, "" when unknown
+	DomainAuto bool   // the sender domain is on the automatic list
+}
+
+// formatUSD renders millionths of a dollar for display.
+func formatUSD(micro int64) string {
+	if micro >= 1_000_000 {
+		return fmt.Sprintf("$%.2f", float64(micro)/1e6)
+	}
+	return fmt.Sprintf("$%.4f", float64(micro)/1e6)
+}
+
+func describeAIRun(r *store.AIRun) string {
+	if r == nil {
+		return ""
+	}
+	when := r.CreatedAt.In(sydneyLoc).Format("Mon 2 Jan 15:04")
+	switch r.Status {
+	case "ok":
+		return fmt.Sprintf("AI checked %s · %d found · %s", when, r.Kept, formatUSD(r.CostMicroUSD))
+	case "refused":
+		return "AI declined this message " + when
+	case "truncated":
+		return "AI answer was cut short " + when
+	}
+	return "AI request failed " + when
 }
 
 // defaultReminders are applied when a suggestion is added with one click.
@@ -115,7 +147,7 @@ func rosterFromMessage(ctx context.Context, db *sql.DB, d *store.MessageDetail) 
 	return days, &rosterHint{Shifts: len(rosterEvents(days)), From: days[0].Date, To: days[len(days)-1].Date}
 }
 
-func buildSuggestionStrip(ctx context.Context, db *sql.DB, messageID int64) (suggestionStripData, error) {
+func buildSuggestionStrip(ctx context.Context, db *sql.DB, ai AIExtractor, messageID int64) (suggestionStripData, error) {
 	data := suggestionStripData{MessageID: messageID}
 	events, err := store.ListMessageCalendarEvents(ctx, db, messageID)
 	if err != nil {
@@ -133,13 +165,18 @@ func buildSuggestionStrip(ctx context.Context, db *sql.DB, messageID int64) (sug
 	}
 	if detail, err := store.GetMessageDetail(ctx, db, messageID); err == nil && detail != nil {
 		_, data.Roster = rosterFromMessage(ctx, db, detail)
+		if ai != nil && !detail.Archived && !detail.Spam {
+			last, _ := store.LastAIRun(ctx, db, messageID)
+			data.AI = &aiStripView{LastRun: describeAIRun(last), Domain: store.SenderDomain(detail.FromAddr)}
+			data.AI.DomainAuto = data.AI.Domain != "" && store.AIDomainListed(ctx, db, detail.FromAddr)
+		}
 	}
 	return data, nil
 }
 
-func registerSuggestionRoutes(mux *http.ServeMux, db *sql.DB) {
+func registerSuggestionRoutes(mux *http.ServeMux, db *sql.DB, ai AIExtractor) {
 	render := func(w http.ResponseWriter, req *http.Request, messageID int64, notice string) {
-		data, err := buildSuggestionStrip(req.Context(), db, messageID)
+		data, err := buildSuggestionStrip(req.Context(), db, ai, messageID)
 		if err != nil {
 			slog.Error("calendar suggestions", "component", "ui", "err", err)
 			renderUIError(w, http.StatusInternalServerError, "failed to load dates")
@@ -221,6 +258,49 @@ func registerSuggestionRoutes(mux *http.ServeMux, db *sql.DB) {
 			if removed > 0 {
 				notice += fmt.Sprintf(", replacing %d", removed)
 			}
+		case "ai":
+			if ai == nil {
+				renderUIError(w, http.StatusServiceUnavailable, "AI extraction is not configured")
+				return
+			}
+			sum, err := ai.Run(req.Context(), messageID, "manual")
+			switch {
+			case errors.Is(err, aiextract.ErrDailyLimit):
+				notice = fmt.Sprintf("daily AI limit reached (%d calls); try again tomorrow", ai.DailyLimit())
+			case errors.Is(err, aiextract.ErrNotEligible):
+				notice = "AI is not used for spam or trash"
+			case err != nil:
+				slog.Warn("ai date extraction", "component", "ui", "message_id", messageID, "err", err)
+				notice = "AI request failed; nothing was added"
+			case sum.Status == "refused":
+				notice = "AI declined to read this message"
+			case sum.Status == "truncated":
+				notice = "AI answer was cut short; nothing was added"
+			case sum.Created == 0 && sum.Kept == 0:
+				notice = "AI found no new dates · " + formatUSD(sum.CostMicroUSD)
+			default:
+				notice = fmt.Sprintf("AI found %d date(s), %d new · %s", sum.Kept, sum.Created, formatUSD(sum.CostMicroUSD))
+			}
+		case "ai_sender_on", "ai_sender_off":
+			detail, err := store.GetMessageDetail(req.Context(), db, messageID)
+			if err != nil || detail == nil || ai == nil {
+				renderUIError(w, http.StatusNotFound, "message not found")
+				return
+			}
+			dom := store.SenderDomain(detail.FromAddr)
+			if req.FormValue("action") == "ai_sender_on" {
+				if _, err := store.AddAISenderDomain(req.Context(), db, dom); err != nil {
+					renderUIError(w, http.StatusBadRequest, "this sender has no usable domain")
+					return
+				}
+				notice = "new mail from " + dom + " will be checked with AI automatically"
+			} else {
+				if err := store.RemoveAISenderDomain(req.Context(), db, dom); err != nil {
+					renderUIError(w, http.StatusBadRequest, "this sender has no usable domain")
+					return
+				}
+				notice = dom + " removed from automatic AI checks"
+			}
 		default:
 			renderUIError(w, http.StatusBadRequest, "unknown action")
 			return
@@ -228,4 +308,19 @@ func registerSuggestionRoutes(mux *http.ServeMux, db *sql.DB) {
 		w.Header().Set("HX-Trigger", "calendar-changed")
 		render(w, req, messageID, notice)
 	})
+}
+
+// buildAISettings summarizes AI usage for the accounts page, or nil when AI
+// extraction is not configured.
+func buildAISettings(ctx context.Context, db *sql.DB, uiCfg *UIConfig) *aiSettingsView {
+	if uiCfg == nil || uiCfg.AI == nil {
+		return nil
+	}
+	v := &aiSettingsView{Model: uiCfg.AI.Model(), DailyLimit: uiCfg.AI.DailyLimit()}
+	day := uiCfg.AI.DayStart()
+	v.Today, _ = store.AIUsageSince(ctx, db, day)
+	v.Month, _ = store.AIUsageSince(ctx, db, day.AddDate(0, 0, -29))
+	v.TodayCost, v.MonthCost = formatUSD(v.Today.CostMicroUSD), formatUSD(v.Month.CostMicroUSD)
+	v.Domains, _ = store.ListAISenderDomains(ctx, db)
+	return v
 }

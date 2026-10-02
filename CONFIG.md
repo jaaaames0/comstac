@@ -122,6 +122,24 @@ registers the stream but does not deliver new-mail events unless the complete
 VAPID configuration is also enabled. Treat this as a dormant integration
 surface unless a new consumer and HTTPS route are deliberately reviewed.
 
+## AI Date Extraction (optional)
+- `COMSTAC_NANOGPT_API_KEY`: NanoGPT API key. When unset, AI extraction is
+  disabled and nothing is sent anywhere. When set, the message view offers
+  "find dates with AI" and senders on the automatic list are scanned on arrival.
+- `COMSTAC_AI_MODEL`: NanoGPT model id, default `gemini-2.5-flash-lite`. Use
+  the id exactly as `GET https://api.nano-gpt.com/api/v1/models` lists it:
+  some carry a provider prefix (`openai/gpt-4.1-nano`, `qwen/qwen3.7-flash`)
+  and some do not (`gemini-2.5-flash-lite`). The model must support structured
+  output.
+- `COMSTAC_AI_DAILY_LIMIT`: maximum AI calls per Australia/Sydney day, default
+  `50`, `0` to block calls while keeping the key configured.
+
+Requests go to `https://api.nano-gpt.com/api/v1/chat/completions`. Only the
+subject, sender, date and a compacted text rendering of the body (links
+removed, capped at 30,000 characters) are sent. Results are only
+suggestions; spam and trash are never sent. Cost is computed from NanoGPT's
+published per-model prices and token usage.
+
 ## Notes
 - `COMSTAC_LOCAL_RECIPIENTS` also bootstraps local accounts used for recipient routing.
 - Values are normalized to lowercase where relevant.

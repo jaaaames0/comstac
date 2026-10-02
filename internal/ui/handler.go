@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"comstac/internal/aiextract"
 	"comstac/internal/imap"
 	"comstac/internal/relay"
 	"comstac/internal/store"
@@ -29,6 +30,17 @@ type UIConfig struct {
 
 	// PushTester sends a test notification; nil when push is not configured.
 	PushTester PushTester
+
+	// AI runs AI date extraction; nil when no API key is configured.
+	AI AIExtractor
+}
+
+// AIExtractor runs AI date extraction for one message.
+type AIExtractor interface {
+	Run(ctx context.Context, messageID int64, trigger string) (aiextract.Summary, error)
+	Model() string
+	DailyLimit() int
+	DayStart() time.Time
 }
 
 // PushTester sends a test notification to every subscription and reports how
@@ -42,7 +54,11 @@ const pushLogLimit = 15
 
 func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UIConfig) {
 	registerCalendarRoutes(mux, db)
-	registerSuggestionRoutes(mux, db)
+	var ai AIExtractor
+	if uiCfg != nil {
+		ai = uiCfg.AI
+	}
+	registerSuggestionRoutes(mux, db, ai)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/" {
@@ -200,7 +216,39 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UICon
 			PushCount:        pushCount,
 			PushDeliveries:   deliveries,
 			ImageSenders:     imageSenders,
+			AI:               buildAISettings(req.Context(), db, uiCfg),
 		})
+	})
+
+	mux.HandleFunc("/ui/ai/senders", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if uiCfg == nil || uiCfg.AI == nil {
+			renderUIError(w, http.StatusServiceUnavailable, "AI extraction is not configured")
+			return
+		}
+		var err error
+		switch req.FormValue("action") {
+		case "add":
+			_, err = store.AddAISenderDomain(req.Context(), db, req.FormValue("domain"))
+		case "remove":
+			err = store.RemoveAISenderDomain(req.Context(), db, req.FormValue("domain"))
+		default:
+			renderUIError(w, http.StatusBadRequest, "unknown action")
+			return
+		}
+		view := buildAISettings(req.Context(), db, uiCfg)
+		if errors.Is(err, store.ErrInvalidDomain) {
+			view.Error = "enter a domain such as example.com"
+		} else if err != nil {
+			slog.Error("ai sender domains", "component", "ui", "err", err)
+			renderUIError(w, http.StatusInternalServerError, "failed to update sender list")
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		execute(w, "ai_section", view)
 	})
 
 	mux.HandleFunc("/ui/compose", func(w http.ResponseWriter, req *http.Request) {

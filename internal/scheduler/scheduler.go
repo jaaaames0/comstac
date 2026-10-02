@@ -25,7 +25,16 @@ type Scheduler struct {
 	notifier Notifier
 	loc      *time.Location
 	nowFn    func() time.Time
+	ai       SenderAI
 }
+
+// SenderAI runs AI extraction for mail from automatic sender domains.
+type SenderAI interface {
+	RunSenderQueue(ctx context.Context) error
+}
+
+// SetAI enables automatic AI extraction on each tick.
+func (s *Scheduler) SetAI(ai SenderAI) { s.ai = ai }
 
 // New returns a scheduler that displays reminder times in loc.
 func New(db *sql.DB, interval time.Duration, notifier Notifier, loc *time.Location) *Scheduler {
@@ -65,6 +74,11 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 	if err := s.scanForDates(ctx, now); err != nil {
 		slog.Error("scan mail for dates", "component", "scheduler", "err", err)
+	}
+	if s.ai != nil {
+		if err := s.ai.RunSenderQueue(ctx); err != nil {
+			slog.Error("automatic ai extraction", "component", "scheduler", "err", err)
+		}
 	}
 }
 

@@ -75,7 +75,46 @@ func SaveExtraction(ctx context.Context, db *sql.DB, messageID int64, version in
 		return 0, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM calendar_events WHERE message_id = ? AND status = ?`, messageID, CalendarSuggested); err != nil {
+	if created, err = replaceSuggestionsTx(ctx, tx, messageID, false, suggestions); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO message_extractions (message_id, version, found) VALUES (?, ?, ?)
+		ON CONFLICT(message_id) DO UPDATE SET version = excluded.version, found = excluded.found, extracted_at = datetime('now')`,
+		messageID, version, created); err != nil {
+		return 0, fmt.Errorf("record extraction: %w", err)
+	}
+	return created, tx.Commit()
+}
+
+// SaveAISuggestions replaces a message's pending AI suggestions, applying the
+// same per-key rules as SaveExtraction. Rule-based suggestions are kept.
+func SaveAISuggestions(ctx context.Context, db *sql.DB, messageID int64, suggestions []CalendarEvent) (int, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	created, err := replaceSuggestionsTx(ctx, tx, messageID, true, suggestions)
+	if err != nil {
+		return 0, err
+	}
+	return created, tx.Commit()
+}
+
+// aiExtractorPrefix marks suggestions made by a language model in
+// details.extractor ("ai:claude-haiku-4-5").
+const aiExtractorPrefix = "ai:"
+
+// replaceSuggestionsTx clears the message's pending suggestions from one
+// source (AI or rules) and stores the new ones.
+func replaceSuggestionsTx(ctx context.Context, tx *sql.Tx, messageID int64, ai bool, suggestions []CalendarEvent) (created int, err error) {
+	op := "NOT LIKE"
+	if ai {
+		op = "LIKE"
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM calendar_events WHERE message_id = ? AND status = ?
+		AND COALESCE(json_extract(details, '$.extractor'), '') `+op+` ?`, messageID, CalendarSuggested, aiExtractorPrefix+"%"); err != nil {
 		return 0, fmt.Errorf("clear suggestions: %w", err)
 	}
 	for _, s := range suggestions {
@@ -140,13 +179,7 @@ func SaveExtraction(ctx context.Context, db *sql.DB, messageID int64, version in
 		}
 		created++
 	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO message_extractions (message_id, version, found) VALUES (?, ?, ?)
-		ON CONFLICT(message_id) DO UPDATE SET version = excluded.version, found = excluded.found, extracted_at = datetime('now')`,
-		messageID, version, created); err != nil {
-		return 0, fmt.Errorf("record extraction: %w", err)
-	}
-	return created, tx.Commit()
+	return created, nil
 }
 
 // ListMessageCalendarEvents returns a message's pending suggestions and the
@@ -250,4 +283,22 @@ func ExtractionProgress(ctx context.Context, db *sql.DB, version int) (done, pen
 		FROM messages m LEFT JOIN message_extractions x ON x.message_id = m.id
 		WHERE m.archived = 0 AND m.spam = 0`, version, version).Scan(&done, &pending)
 	return done, pending, err
+}
+
+// GetExtractionTarget loads one message for extraction with its inbox state.
+// It returns nil when the message does not exist.
+func GetExtractionTarget(ctx context.Context, db *sql.DB, id int64) (t *ExtractionTarget, archived, spam bool, err error) {
+	var x ExtractionTarget
+	var a, s int
+	err = db.QueryRowContext(ctx, `
+		SELECT m.id, COALESCE(m.subject, ''), COALESCE(m.from_addr, ''), COALESCE(m.date_hdr, ''), m.created_at, mr.mime, m.archived, m.spam
+		FROM messages m JOIN messages_raw mr ON mr.id = m.raw_id WHERE m.id = ?`, id).
+		Scan(&x.ID, &x.Subject, &x.FromAddr, &x.DateHdr, &x.CreatedAt, &x.Raw, &a, &s)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, false, nil
+	}
+	if err != nil {
+		return nil, false, false, err
+	}
+	return &x, a != 0, s != 0, nil
 }

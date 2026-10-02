@@ -55,3 +55,25 @@ func TestDefaultReminders(t *testing.T) {
 		}
 	}
 }
+
+func TestSuggestionStripAIControls(t *testing.T) {
+	var out bytes.Buffer
+	execute(&out, "calendar_suggestions", suggestionStripData{MessageID: 7, AI: &aiStripView{Domain: "tickets.example"}})
+	html := out.String()
+	for _, want := range []string{">find dates with AI</button>", `"action":"ai"`, `"action":"ai_sender_on"`, "always for tickets.example"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("AI controls missing %q:\n%s", want, html)
+		}
+	}
+	out.Reset()
+	execute(&out, "calendar_suggestions", suggestionStripData{MessageID: 7, AI: &aiStripView{Domain: "tickets.example", DomainAuto: true, LastRun: "AI checked Fri 2 Oct 14:02 · 1 found · $0.0021"}})
+	html = out.String()
+	for _, want := range []string{">check again with AI</button>", "1 found · $0.0021", `"action":"ai_sender_off"`, "✓ always for"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("AI controls missing %q:\n%s", want, html)
+		}
+	}
+	if formatUSD(2700) != "$0.0027" || formatUSD(12_340_000) != "$12.34" {
+		t.Fatalf("formatUSD: %s %s", formatUSD(2700), formatUSD(12_340_000))
+	}
+}

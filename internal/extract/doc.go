@@ -113,6 +113,12 @@ func renderNode(n *html.Node, b *strings.Builder, d *doc) {
 		case n.DataAtom == atom.Br:
 			b.WriteString("\n")
 			return
+		case n.DataAtom == atom.Tr:
+			if rows := unstackRow(n); rows != nil {
+				b.WriteString("\n" + strings.Join(rows, "\n") + "\n")
+				collectIDs(n, d)
+				return
+			}
 		case n.DataAtom == atom.Td || n.DataAtom == atom.Th:
 			b.WriteString(" | ")
 		case blockAtoms[n.DataAtom]:
@@ -132,6 +138,54 @@ func renderNode(n *html.Node, b *strings.Builder, d *doc) {
 	}
 	if n.Type == html.ElementNode && blockAtoms[n.DataAtom] {
 		b.WriteString("\n")
+	}
+}
+
+// unstackRow handles rows whose cells each stack one value per line for
+// several records (Jetstar change notices: "22Dec26<br>22Dec26" | "JQ 761<br>
+// JQ 460" | ...). It returns one " | "-joined line per record, or nil when the
+// row is ordinary.
+func unstackRow(tr *html.Node) []string {
+	var cells [][]string
+	for td := tr.FirstChild; td != nil; td = td.NextSibling {
+		if td.Type == html.ElementNode && (td.DataAtom == atom.Td || td.DataAtom == atom.Th) {
+			cells = append(cells, splitLines(textOf(td)))
+		}
+	}
+	if len(cells) < 3 {
+		return nil
+	}
+	k := len(cells[0])
+	if k < 2 || k > 20 {
+		return nil
+	}
+	for _, c := range cells {
+		if len(c) != k {
+			return nil
+		}
+	}
+	rows := make([]string, k)
+	for i := range rows {
+		parts := make([]string, len(cells))
+		for j, c := range cells {
+			parts[j] = c[i]
+		}
+		rows[i] = strings.Join(parts, " | ")
+	}
+	return rows
+}
+
+// collectIDs records element ids below n without rendering text.
+func collectIDs(n *html.Node, d *doc) {
+	if n.Type == html.ElementNode {
+		if id := attr(n, "id"); id != "" {
+			if _, seen := d.ByID[id]; !seen {
+				d.ByID[id] = normalize(strings.ReplaceAll(textOf(n), "\n", " "))
+			}
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		collectIDs(c, d)
 	}
 }
 

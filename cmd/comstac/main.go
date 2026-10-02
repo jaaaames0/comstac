@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"comstac/internal/aiextract"
 	"comstac/internal/api"
 	"comstac/internal/auth"
 	"comstac/internal/config"
@@ -211,14 +212,24 @@ func main() {
 		}
 	}
 
+	// AI date extraction is opt-in: nothing is sent unless a key is set.
+	var aiService *aiextract.Service
+	if cfg.NanoGPTAPIKey != "" {
+		aiService = aiextract.NewService(db, aiextract.NewClient(cfg.NanoGPTAPIKey, cfg.AIModel), cfg.AIDailyLimit, ui.HomeLocation())
+		slog.Info("ai date extraction enabled", "component", "aiextract", "model", cfg.AIModel, "daily_limit", cfg.AIDailyLimit)
+	}
+
 	var uiCfg *ui.UIConfig
-	if ts != nil || pushNotifier != nil {
+	if ts != nil || pushNotifier != nil || aiService != nil {
 		uiCfg = &ui.UIConfig{
 			TokenSource:    ts,
 			VAPIDPublicKey: cfg.VAPIDPublicKey,
 		}
 		if pushNotifier != nil {
 			uiCfg.PushTester = pushNotifier
+		}
+		if aiService != nil {
+			uiCfg.AI = aiService
 		}
 	}
 
@@ -237,8 +248,12 @@ func main() {
 	if pushNotifier != nil {
 		reminders = pushNotifier
 	}
+	sched := scheduler.New(db, 30*time.Second, reminders, ui.HomeLocation())
+	if aiService != nil {
+		sched.SetAI(aiService)
+	}
 	workers++
-	go func() { errCh <- scheduler.New(db, 30*time.Second, reminders, ui.HomeLocation()).Run(runCtx) }()
+	go func() { errCh <- sched.Run(runCtx) }()
 	if pushNotifier != nil {
 		workers++
 		go func() { errCh <- pushNotifier.Run(runCtx) }()
