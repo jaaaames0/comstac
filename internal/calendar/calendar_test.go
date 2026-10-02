@@ -175,9 +175,22 @@ REGULAR SEGMENT
 Shift Location: Store 072
 `
 
+// The same week copied from the roster app's laptop view (2026-10-02), with
+// the trailing tabs after the day numbers.
+const sampleRosterLaptop = "Mon\n28\t\nNo Shift\nTue\n29\t\n11:45 AM - 08:30 PM\n\nREGULAR SEGMENT\nShift Location: Store 072\n" +
+	"Wed\n30\t\n11:45 AM - 08:30 PM\n\nREGULAR SEGMENT\nShift Location: Store 072\nThu\n01\t\nNo Shift\nFri\n02\t\nNo Shift\n" +
+	"Sat\n03\t\n11:15 AM - 07:30 PM\n\nREGULAR SEGMENT\nShift Location: Store 072\nSun\n04\t\n11:45 AM - 08:15 PM\n\nREGULAR SEGMENT\nShift Location: Store 072\n"
+
 func TestParseRosterSample(t *testing.T) {
+	for name, text := range map[string]string{"phone": sampleRoster, "laptop": sampleRosterLaptop} {
+		t.Run(name, func(t *testing.T) { checkSampleRoster(t, text) })
+	}
+}
+
+func checkSampleRoster(t *testing.T, text string) {
+	t.Helper()
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, sydney)
-	days, err := ParseRoster(sampleRoster, now, sydney)
+	days, err := ParseRoster(text, now, sydney)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +225,8 @@ func TestParseRosterRejectsInconsistentText(t *testing.T) {
 		"missing number":   "Mon\n09:00 AM - 05:00 PM\nTue\nNo Shift\n30\n",
 		"empty":            "\n\n",
 		"bad time":         "Tue\n13:00 PM - 05:00 PM\n29\n",
+		"laptop mismatch":  "Mon\n29\nNo Shift\n",
+		"laptop no shift":  "Tue\n29\nWed\n30\nNo Shift\n",
 	}
 	for name, text := range bad {
 		if _, err := ParseRoster(text, now, sydney); err == nil {

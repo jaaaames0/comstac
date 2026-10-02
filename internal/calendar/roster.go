@@ -42,12 +42,14 @@ type rosterDraft struct {
 	details    []string
 }
 
-// ParseRoster parses roster text copied from the roster app. Each day reads
-// [weekday] -> shift time or "No Shift" -> day number -> detail lines, where
-// the day number closes the day above it and later detail lines still belong
-// to it. Encircled day numbers may copy as "(30". Month and year are inferred
-// from the day numbers and weekdays, choosing the candidate nearest now; text
-// that fits no month is rejected.
+// ParseRoster parses roster text copied from the roster app. A day has an
+// optional weekday, a day number, a shift time or "No Shift", and detail
+// lines. The laptop view lists weekday -> number -> shift -> details; the
+// phone view lists weekday -> shift -> number -> details and may omit a
+// weekday. Either order works: a new day starts when a field the current day
+// already has appears again. Encircled day numbers may copy as "(30". Month
+// and year are inferred from the day numbers and weekdays, choosing the
+// candidate nearest now; text that fits no month is rejected.
 func ParseRoster(text string, now time.Time, loc *time.Location) ([]RosterDay, error) {
 	var drafts []*rosterDraft
 	cur := &rosterDraft{num: -1}
@@ -64,18 +66,18 @@ func ParseRoster(text string, now time.Time, loc *time.Location) ([]RosterDay, e
 		}
 		switch {
 		case reRosterWeekday.MatchString(line):
-			if cur.num >= 0 || cur.hasWeekday {
+			if cur.hasWeekday || (cur.num >= 0 && cur.shiftSeen) {
 				flush()
 			}
 			cur.weekday = rosterWeekdays[strings.ToLower(line[:3])]
 			cur.hasWeekday = true
 		case reRosterNoShift.MatchString(line):
-			if cur.num >= 0 || cur.shiftSeen {
+			if cur.shiftSeen {
 				flush()
 			}
 			cur.shiftSeen, cur.noShift = true, true
 		case reRosterShift.MatchString(line):
-			if cur.num >= 0 || cur.shiftSeen {
+			if cur.shiftSeen {
 				flush()
 			}
 			start, end, err := parseShiftTimes(line)

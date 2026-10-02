@@ -171,7 +171,7 @@
   <p class="cal-hint">Paste the roster text copied from the roster app. You'll see the shifts before anything is added.</p>
   {{if .Error}}<div class="cal-error">{{.Error}}</div>{{end}}
   <form hx-post="/ui/calendar/roster/preview" hx-target="#cal-panel" hx-swap="innerHTML">
-    <textarea class="form-input cal-roster-text" name="text" rows="14" required placeholder="Mon&#10;No Shift&#10;28&#10;Tue&#10;11:45 AM - 08:30 PM&#10;29&#10;…">{{.Text}}</textarea>
+    <textarea class="form-input cal-roster-text" name="text" rows="14" required placeholder="Mon&#10;28&#10;No Shift&#10;Tue&#10;29&#10;11:45 AM - 08:30 PM&#10;REGULAR SEGMENT&#10;Shift Location: Store 072&#10;…">{{.Text}}</textarea>
     <div class="cal-actions">
       <button class="act-p" type="submit">preview</button>
     </div>
