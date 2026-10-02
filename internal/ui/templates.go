@@ -158,7 +158,7 @@ func newMessageListData(items []store.MessageListItem, opts store.ListMessageOpt
 		IsTrash:      opts.Trash,
 		SourceFilter: opts.Source,
 	}
-	if len(items) == opts.Limit {
+	if len(items) == opts.Limit && !opts.Snoozed {
 		last := items[len(items)-1].ID
 		u := fmt.Sprintf("/ui/messages?limit=%d&before_id=%d", opts.Limit, last)
 		if opts.Trash {
@@ -193,10 +193,18 @@ type messageDetailData struct {
 	HasReplyAll        bool   // true when there are other recipients worth reply-all-ing
 	BodyHTML           string // isolated HTML document; shadows embedded field
 	RemoteImagesLoaded bool
+	SnoozePresets      []snoozePreset
+	SnoozeMin          string // datetime-local lower bound, Sydney time
 }
 
 func newMessageDetailData(d *store.MessageDetail, loadRemoteImages bool) messageDetailData {
-	out := messageDetailData{MessageDetail: *d, RemoteImagesLoaded: loadRemoteImages}
+	now := time.Now()
+	out := messageDetailData{
+		MessageDetail:      *d,
+		RemoteImagesLoaded: loadRemoteImages,
+		SnoozePresets:      snoozePresets(now),
+		SnoozeMin:          now.In(sydneyLoc).Format(snoozeLocalLayout),
+	}
 	if d.AuthResults != "" {
 		var res validation.Result
 		if err := json.Unmarshal([]byte(d.AuthResults), &res); err == nil {
@@ -321,7 +329,8 @@ func fmtFullDate(s string) string {
 	return t.In(sydneyLoc).Format("Mon, 2 Jan 2006 15:04:05")
 }
 
-// fmtSnooze formats a snooze timestamp for display; returns "" if empty.
+// fmtSnooze formats a snooze timestamp in Australia/Sydney time; returns ""
+// if empty.
 func fmtSnooze(s string) string {
 	if s == "" {
 		return ""
@@ -330,5 +339,5 @@ func fmtSnooze(s string) string {
 	if err != nil {
 		return s
 	}
-	return t.Local().Format("Jan 2, 15:04")
+	return t.In(sydneyLoc).Format("Mon 2 Jan 15:04")
 }

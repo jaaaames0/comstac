@@ -42,6 +42,7 @@ type newMailNotification struct {
 	subject   string
 	from      string
 	messageID int64
+	reminder  bool
 }
 
 func New(db *sql.DB, vapidPublic, vapidPrivate, vapidSubject string, ac *AgentClients) (*Notifier, error) {
@@ -78,6 +79,17 @@ func (n *Notifier) QueueNewMail(subject, from string, messageID int64) bool {
 	}
 }
 
+// QueueReminder queues a notification for a message whose snooze expired.
+// Reminders go to Web Push subscriptions only, not agent new_mail events.
+func (n *Notifier) QueueReminder(subject, from string, messageID int64) bool {
+	select {
+	case n.queue <- newMailNotification{subject: subject, from: from, messageID: messageID, reminder: true}:
+		return true
+	default:
+		return false
+	}
+}
+
 // Run processes the bounded notification queue with a fixed worker count.
 func (n *Notifier) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
@@ -91,7 +103,11 @@ func (n *Notifier) Run(ctx context.Context) error {
 					return
 				case event := <-n.queue:
 					deliveryCtx, cancel := context.WithTimeout(ctx, notificationTimeout)
-					n.SendNewMail(deliveryCtx, event.subject, event.from, event.messageID)
+					if event.reminder {
+						n.SendReminder(deliveryCtx, event.subject, event.from, event.messageID)
+					} else {
+						n.SendNewMail(deliveryCtx, event.subject, event.from, event.messageID)
+					}
 					cancel()
 				}
 			}
@@ -151,7 +167,16 @@ func (n *Notifier) SendNewMail(ctx context.Context, subject, from string, messag
 	if n.agentClients != nil {
 		n.agentClients.EmitNewMail(messageID, from, subject)
 	}
+	n.sendPush(ctx, "comstac", subject, from, messageID)
+}
 
+// SendReminder dispatches a "snooze expired" push notification to all
+// subscriptions.
+func (n *Notifier) SendReminder(ctx context.Context, subject, from string, messageID int64) {
+	n.sendPush(ctx, "comstac reminder", subject, from, messageID)
+}
+
+func (n *Notifier) sendPush(ctx context.Context, title, subject, from string, messageID int64) {
 	subs, err := store.ListPushSubscriptions(ctx, n.db)
 	if err != nil {
 		slog.Error("push: list subscriptions", "err", err)
@@ -165,7 +190,7 @@ func (n *Notifier) SendNewMail(ctx context.Context, subject, from string, messag
 	if from != "" {
 		body = fmt.Sprintf("%s — %s", from, subject)
 	}
-	p := payload{Title: "comstac", Body: body, MessageID: messageID}
+	p := payload{Title: title, Body: body, MessageID: messageID}
 	msg, _ := json.Marshal(p)
 
 	opts := &webpush.Options{

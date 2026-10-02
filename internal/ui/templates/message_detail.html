@@ -62,29 +62,27 @@
         {{if .SnoozeUntil}}
           {{actionBtn .ID "clear_snooze" "" "unsnooze" "act-s"}}
         {{else}}
-        <div class="dropdown">
-          <button class="act-s dropdown-btn" type="button">snooze ▾</button>
+        <div class="dropdown dropdown--snooze">
+          <button class="act-s dropdown-btn" type="button" title="snooze (b)">snooze ▾</button>
           <div class="dropdown-menu">
-            <button class="dm-item"
+            {{range .SnoozePresets}}
+            <button class="dm-item dm-snooze"
                     hx-post="/ui/message/actions"
                     hx-target="#reading-pane"
                     hx-swap="innerHTML"
-                    hx-vals='{"id":"{{.ID}}","action":"snooze","hours":"1"}'>1h</button>
-            <button class="dm-item"
-                    hx-post="/ui/message/actions"
-                    hx-target="#reading-pane"
-                    hx-swap="innerHTML"
-                    hx-vals='{"id":"{{.ID}}","action":"snooze","hours":"24"}'>24h</button>
-            <button class="dm-item"
-                    hx-post="/ui/message/actions"
-                    hx-target="#reading-pane"
-                    hx-swap="innerHTML"
-                    hx-vals='{"id":"{{.ID}}","action":"snooze","hours":"72"}'>3d</button>
-            <button class="dm-item"
-                    hx-post="/ui/message/actions"
-                    hx-target="#reading-pane"
-                    hx-swap="innerHTML"
-                    hx-vals='{"id":"{{.ID}}","action":"snooze","hours":"168"}'>7d</button>
+                    hx-vals='{"id":"{{$.ID}}","action":"snooze","until":"{{.Until}}"}'>
+              <span>{{.Label}}</span><span class="dm-when">{{.When}}</span>
+            </button>
+            {{end}}
+            <form class="dm-custom"
+                  hx-post="/ui/message/actions"
+                  hx-target="#reading-pane"
+                  hx-swap="innerHTML">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <input type="hidden" name="action" value="snooze">
+              <input type="datetime-local" name="until" min="{{.SnoozeMin}}" required aria-label="custom snooze time (Sydney)">
+              <button class="dm-item" type="submit">set</button>
+            </form>
           </div>
         </div>
         {{end}}

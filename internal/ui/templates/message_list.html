@@ -19,7 +19,7 @@
 
     <div class="msg-row-bottom">
       {{if .Spam}}<span class="badge badge-spam">spam</span>{{end}}
-      {{if .SnoozeUntil}}<span class="badge badge-snoozed">snoozed</span>{{end}}
+      {{if .SnoozeUntil}}<span class="badge badge-snoozed" title="snoozed until {{fmtSnooze .SnoozeUntil}}">snoozed · {{fmtSnooze .SnoozeUntil}}</span>{{else if and .ResurfacedAt (not .Read)}}<span class="badge badge-reminder">reminder</span>{{end}}
       <span class="msg-subject">{{.Subject}}</span>
     </div>
 

@@ -471,12 +471,11 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UICon
 			execute(w, "row_removed", id)
 			return
 		case "snooze":
-			hours, hErr := strconv.Atoi(req.FormValue("hours"))
-			if hErr != nil || hours <= 0 {
-				http.Error(w, "invalid snooze hours", http.StatusBadRequest)
+			until, uErr := parseSnoozeUntil(strings.TrimSpace(req.FormValue("until")), time.Now())
+			if uErr != nil {
+				renderUIError(w, http.StatusBadRequest, uErr.Error())
 				return
 			}
-			until := time.Now().UTC().Add(time.Duration(hours) * time.Hour)
 			_, err = store.SetMessageSnoozeUntil(req.Context(), db, id, &until)
 			if err == nil {
 				_, _ = store.EnqueueIMAPSyncJob(req.Context(), db, id, "snooze", map[string]any{"until": until.Format(time.RFC3339)})
@@ -735,6 +734,13 @@ func parseListOpts(r *http.Request) (store.ListMessageOptions, error) {
 			return opts, fmt.Errorf("invalid trash")
 		}
 		opts.Trash = b
+	}
+	if raw := q.Get("snoozed"); raw != "" {
+		b, err := parseBool(raw)
+		if err != nil {
+			return opts, fmt.Errorf("invalid snoozed")
+		}
+		opts.Snoozed = b
 	}
 	return opts, nil
 }

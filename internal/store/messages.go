@@ -29,6 +29,9 @@ type MessageListItem struct {
 	Archived    bool   `json:"archived"`
 	Spam        bool   `json:"spam"`
 	SnoozeUntil string `json:"snooze_until,omitempty"`
+	// ResurfacedAt is set when an expired snooze returned the message to the
+	// top of the inbox.
+	ResurfacedAt string `json:"resurfaced_at,omitempty"`
 }
 
 // AttachmentInfo holds display metadata for one MIME attachment part.
@@ -66,6 +69,9 @@ type ListMessageOptions struct {
 	Archived *bool
 	Spam     *bool
 	Source   string
+	// Snoozed=true selects pending snoozes outside trash and spam, soonest
+	// first, without pagination. Takes precedence over the other filters.
+	Snoozed bool
 	// Trash=true selects archived messages trashed within the last 14 days.
 	// Takes precedence over Archived when set.
 	Trash bool
@@ -93,20 +99,32 @@ func ListMessages(ctx context.Context, db *sql.DB, opts ListMessageOptions) ([]M
 			m.read,
 			m.archived,
 			m.spam,
-			COALESCE(m.snooze_until, '')
+			COALESCE(m.snooze_until, ''),
+			COALESCE(m.resurfaced_at, '')
 		FROM messages m
 		JOIN messages_raw mr ON mr.id = m.raw_id
 		WHERE 1=1
 	`)
 
 	args := make([]any, 0, 8)
+	if opts.Snoozed {
+		query.WriteString(` AND m.snooze_until IS NOT NULL AND m.archived = 0 AND m.spam = 0`)
+		if opts.Source == "smtp" || opts.Source == "imap" {
+			query.WriteString(` AND mr.source = ?`)
+			args = append(args, opts.Source)
+		}
+		query.WriteString(` ORDER BY julianday(m.snooze_until) ASC, m.id ASC LIMIT ?`)
+		args = append(args, limit)
+		return queryMessageList(ctx, db, query.String(), args, limit)
+	}
 	if opts.BeforeID > 0 {
-		// Keyset cursor: rows received earlier, or same received time and lower id.
+		// Keyset cursor over list time (resurfaced or received): rows listed
+		// earlier, or listed at the same time with a lower id.
 		query.WriteString(`
 			AND (
-				m.created_at < (SELECT created_at FROM messages WHERE id = ?)
+				COALESCE(m.resurfaced_at, m.created_at) < (SELECT COALESCE(resurfaced_at, created_at) FROM messages WHERE id = ?)
 				OR (
-					m.created_at = (SELECT created_at FROM messages WHERE id = ?)
+					COALESCE(m.resurfaced_at, m.created_at) = (SELECT COALESCE(resurfaced_at, created_at) FROM messages WHERE id = ?)
 					AND m.id < ?
 				)
 			)`)
@@ -142,10 +160,13 @@ func ListMessages(ctx context.Context, db *sql.DB, opts ListMessageOptions) ([]M
 			args = append(args, source)
 		}
 	}
-	query.WriteString(` ORDER BY m.created_at DESC, m.id DESC LIMIT ?`)
+	query.WriteString(` ORDER BY COALESCE(m.resurfaced_at, m.created_at) DESC, m.id DESC LIMIT ?`)
 	args = append(args, limit)
+	return queryMessageList(ctx, db, query.String(), args, limit)
+}
 
-	rows, err := db.QueryContext(ctx, query.String(), args...)
+func queryMessageList(ctx context.Context, db *sql.DB, query string, args []any, limit int) ([]MessageListItem, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query messages: %w", err)
 	}
@@ -167,6 +188,7 @@ func ListMessages(ctx context.Context, db *sql.DB, opts ListMessageOptions) ([]M
 			&archivedInt,
 			&spamInt,
 			&item.SnoozeUntil,
+			&item.ResurfacedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan message row: %w", err)
 		}
@@ -297,6 +319,74 @@ func SetMessageSnoozeUntil(ctx context.Context, db *sql.DB, id int64, until *tim
 		return false, fmt.Errorf("set snooze rows: %w", err)
 	}
 	return affected > 0, nil
+}
+
+// WokenSnooze describes a message returned to the inbox by WakeDueSnoozes.
+type WokenSnooze struct {
+	ID       int64
+	Subject  string
+	FromAddr string
+}
+
+// WakeDueSnoozes clears every snooze due at or before now. Messages in the
+// inbox are marked unread and resurfaced to the top of the list; trashed or
+// spam messages only have the snooze cleared and are not returned.
+func WakeDueSnoozes(ctx context.Context, db *sql.DB, now time.Time) ([]WokenSnooze, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin wake snoozes: %w", err)
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, COALESCE(subject, ''), COALESCE(from_addr, ''), archived = 0 AND spam = 0
+		FROM messages
+		WHERE snooze_until IS NOT NULL
+		  AND julianday(snooze_until) <= julianday(?)
+		ORDER BY id
+	`, now.UTC().Format(time.RFC3339))
+	if err != nil {
+		return nil, fmt.Errorf("select due snoozes: %w", err)
+	}
+	type due struct {
+		woken  WokenSnooze
+		active bool
+	}
+	var dueRows []due
+	for rows.Next() {
+		var d due
+		if err := rows.Scan(&d.woken.ID, &d.woken.Subject, &d.woken.FromAddr, &d.active); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan due snooze: %w", err)
+		}
+		dueRows = append(dueRows, d)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate due snoozes: %w", err)
+	}
+
+	woken := make([]WokenSnooze, 0, len(dueRows))
+	for _, d := range dueRows {
+		if !d.active {
+			if _, err := tx.ExecContext(ctx, `UPDATE messages SET snooze_until = NULL WHERE id = ?`, d.woken.ID); err != nil {
+				return nil, fmt.Errorf("clear inactive snooze: %w", err)
+			}
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE messages
+			SET snooze_until = NULL, read = 0, resurfaced_at = datetime('now')
+			WHERE id = ?
+		`, d.woken.ID); err != nil {
+			return nil, fmt.Errorf("resurface snooze: %w", err)
+		}
+		woken = append(woken, d.woken)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit wake snoozes: %w", err)
+	}
+	return woken, nil
 }
 
 func SearchMessages(ctx context.Context, db *sql.DB, q string, limit int) ([]MessageListItem, error) {

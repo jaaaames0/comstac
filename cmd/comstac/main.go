@@ -23,6 +23,7 @@ import (
 	"comstac/internal/relay"
 	"comstac/internal/securitymetrics"
 	"comstac/internal/smtpserver"
+	"comstac/internal/snooze"
 	"comstac/internal/storageguard"
 	"comstac/internal/store"
 	syncer "comstac/internal/sync"
@@ -224,10 +225,17 @@ func main() {
 	apiSrv.SetACMEChallengeDir(cfg.ACMEChallengeDir)
 
 	workers := 3
-	errCh := make(chan error, 5)
+	errCh := make(chan error, 6)
 	go func() { errCh <- smtpSrv.Run(runCtx) }()
 	go func() { errCh <- apiSrv.Run(runCtx) }()
 	go func() { errCh <- syncRunner.Run(runCtx) }()
+	// A nil *push.Notifier must not become a non-nil interface value.
+	var reminders snooze.ReminderNotifier
+	if pushNotifier != nil {
+		reminders = pushNotifier
+	}
+	workers++
+	go func() { errCh <- snooze.NewWaker(db, 30*time.Second, reminders).Run(runCtx) }()
 	if pushNotifier != nil {
 		workers++
 		go func() { errCh <- pushNotifier.Run(runCtx) }()

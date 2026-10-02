@@ -294,6 +294,7 @@
     .badge-spam   { background: var(--danger-dim); color: var(--danger); }
     .badge-src    { background: var(--surface-3);  color: var(--dim); border: 1px solid var(--border); }
     .badge-snoozed { background: rgba(227,179,65,.1); color: var(--warning); }
+    .badge-reminder { background: rgba(227,179,65,.18); color: var(--warning); font-weight: 600; }
 
     .list-empty {
       padding: 48px 20px;
@@ -507,6 +508,15 @@
       white-space: nowrap;
     }
     .dm-item:last-child { border-bottom: none; }
+    .dm-snooze { display: flex; justify-content: space-between; gap: 16px; }
+    .dm-when { color: var(--dim); }
+    .dm-custom { display: flex; align-items: center; gap: 4px; padding: 4px 4px 4px 8px; }
+    .dm-custom input {
+      background: var(--surface-3); border: 1px solid var(--border); border-radius: 3px;
+      color: var(--text); font-family: var(--mono); font-size: 12px; padding: 3px 4px;
+      color-scheme: dark;
+    }
+    .dm-custom .dm-item { border-bottom: none; padding: 4px 8px; }
     .dm-item:hover { color: var(--text); background: var(--surface-3); }
 
     /* trash button — red accent, rightmost */
@@ -801,6 +811,7 @@
       <button class="f active" data-filter="inbox">inbox</button>
       <button class="f"        data-filter="trash">trash</button>
       <button class="f"        data-filter="spam">spam</button>
+      <button class="f"        data-filter="snoozed">snoozed</button>
       <span class="sep"></span>
       <!-- Stream dimension: all / smtp / imap -->
       <button class="f active" data-stream="all" title="all mail">
@@ -887,6 +898,7 @@
         if (activeFilter === 'inbox') p += '&spam=0&archived=0';
         else if (activeFilter === 'trash') p += '&trash=1';
         else if (activeFilter === 'spam')  p += '&spam=1';
+        else if (activeFilter === 'snoozed') p += '&snoozed=1';
         if (activeStream === 'smtp') p += '&source=smtp';
         else if (activeStream === 'imap') p += '&source=imap';
         return p;
@@ -1131,9 +1143,16 @@
             menu.style.top  = (rect.bottom - off.top  + 4) + 'px';
             menu.style.left = (rect.left   - off.left)     + 'px';
             dd.classList.add('open');
+            // Keep menus near the right edge (e.g. snooze) inside the viewport.
+            var maxLeft = window.innerWidth - menu.offsetWidth - 8;
+            if (rect.left > maxLeft) {
+              menu.style.left = (Math.max(8, maxLeft) - off.left) + 'px';
+            }
           }
           return;
         }
+        // Keep the menu open while using the custom snooze picker.
+        if (e.target.closest('.dm-custom')) return;
         closeAllDropdowns();
       });
 
@@ -1174,6 +1193,11 @@
             btn = Array.from(pane.querySelectorAll('button')).find(function(b) {
               return b.textContent.trim() === 'unread';
             });
+            if (btn) btn.click();
+            e.preventDefault();
+            break;
+          case 'b': // snooze menu
+            btn = pane.querySelector('.dropdown--snooze .dropdown-btn');
             if (btn) btn.click();
             e.preventDefault();
             break;
