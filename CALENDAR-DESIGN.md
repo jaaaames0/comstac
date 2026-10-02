@@ -1,0 +1,116 @@
+# Calendar design
+
+Status: agreed design, 2026-10-02. Not yet implemented beyond step 1.
+
+## Goals
+
+- A calendar inside Comstac, with no external calendar app or feed. Comstac
+  owns the display and the reminders.
+- Dates found in email (flights, stays, deadlines, expiries, events, promotions)
+  become **suggestions** that are added with one click; nothing is added without
+  confirmation.
+- Custom events, recurring events and a fortnightly work roster.
+- Reminders delivered through Comstac's own Web Push.
+
+## Findings that shaped the design
+
+- Of 1135 stored messages (2026-10-02), 2 carried schema.org JSON-LD and 6
+  microdata, none of them flight, lodging or event reservations, and none had a
+  `text/calendar` part. Structured booking data is a bonus, not the main path.
+- With no external feed, Web Push is the only reminder channel, so its
+  reliability is a prerequisite (step 1).
+
+## Data model
+
+- `calendar_events`: title, notes, location, `start_at`/`end_at` (UTC),
+  `all_day`, `tz` (IANA, default `Australia/Sydney`), `kind` (flight, stay,
+  deadline, expiry, event, promo, shift, custom), `source` (manual, email,
+  import, roster, ai), `message_id` back-link, `status` (suggested, confirmed,
+  dismissed), `details` JSON (flight number, airports, booking reference),
+  optional `rrule`, `dedupe_key`, extractor name and version.
+- `event_reminders`: event, offset before start or absolute time, fired time.
+- `dedupe_key` (for example `PSFU4K/JQ761/2026-12-22`) lets a "your flight has
+  changed" email update the existing event and show the difference instead of
+  duplicating it.
+- Time zones are explicit: flights take the departure airport's zone from an
+  embedded IATA table (Adelaide is not Sydney time); Australian addresses map
+  by state.
+
+## Reminder scheduler
+
+Generalise the snooze waker into one scheduler for snoozes and event reminders:
+one ticker, one idempotent fired record, one notification path. Default
+reminders by kind when a suggestion is confirmed: flight 24 h and 3 h before;
+stay check-in the evening before; deadline/expiry 3 days before and the morning
+of. All editable.
+
+## Extraction
+
+Every extractor writes to the same suggestions table. Suggestions appear as a
+"dates found" strip in the message view. Past dates are not suggested.
+
+1. **Structured data**: JSON-LD, microdata, `text/calendar` parts.
+2. **Per-sender HTML templates** using the existing HTML tokenizer. Example:
+   Sabre/Virgin markup has stable ids (`air-N-flight-number`,
+   `air-N-departure-time`, `air-N-departure-date`, `air-N-departure-city-code2`,
+   ...). Table layouts (Jetstar changes, hotel check-in/out) are parsed by
+   column from HTML rather than flattened text.
+3. **Generic rules** on text: absolute dates (`3 Oct 2026`,
+   `30 September 2026`, `22Dec26`, `Thu, Oct 29`), relative dates
+   (`in 14 days`, anchored to the message `Date` header), and a nearby keyword
+   for the kind (expires, removed, due, check-in, departs). Missing years infer
+   the next future date and are cross-checked against any weekday given.
+4. **AI (opt-in)**: Claude Haiku 4.5 to start, behind a provider interface.
+   - Input: HTML reduced to compact cell-preserving text (no tracking URLs,
+     images, styles or footers), size-capped, plus subject and `Date`.
+   - Output: schema-constrained JSON events, each with confidence and an
+     evidence quote. Events whose quote is not in the input, or whose date
+     disagrees with it, are rejected.
+   - Triggers: per-message "extract with AI" button and an optional per-sender
+     automatic list. Never spam or trash. Daily call cap and visible usage and
+     cost counts; record real per-call costs before deciding on wider use.
+   - Email content is untrusted: the model has no tools and only produces
+     suggestions that need confirmation. API key in `/etc/comstac/comstac.env`.
+
+Extraction runs at ingest plus a one-off backfill over inbox mail; extractor
+versions allow re-scans when an extractor improves.
+
+## Roster import
+
+The roster app only offers copyable text (or a screenshot). Each day reads as
+`[weekday] -> [shift time | "No Shift"] -> [day number] -> [details]`:
+
+- the number closes the day above it; details lines after it belong to that day;
+- a stray `(` before a number (an encircled date) is ignored;
+- a missing weekday label is inferred from neighbours;
+- month and year come from the day-number sequence plus weekdays (28, 29, 30,
+  01 with Mon..Thu fixes 28 Sep - 1 Oct 2026); an inconsistent block is
+  refused, not guessed;
+- a shift ending before it starts ends the next day; location is kept.
+
+Routes: paste into a "roster" box on the calendar page (preview, then confirm),
+or email the text to yourself with a subject starting `roster` (same preview;
+From is spoofable so it is never applied automatically). Screenshots can go
+through the AI provider when enabled. Importing a range replaces existing shifts
+in that range so updated rosters do not duplicate.
+
+## Calendar UI
+
+- **Month view scrolls vertically and infinitely** (within a bounded window
+  that extends as you scroll), never swiping sideways. Months flow into each
+  other with only a light boundary, no hard border or page break.
+- Agenda list grouped by day, opening at today; kinds visually distinct.
+- Events link back to their source email.
+- Custom event form: all-day or timed, location, notes, reminders, recurrence
+  presets (daily, weekly, fortnightly, monthly, yearly, chosen weekdays,
+  until/count, skip a date) on a small in-house RRULE subset.
+
+## Order
+
+1. Push reliability: TTL, urgency, per-message tags, subscription repair,
+   delivery log and test button. Ship with snooze.
+2. Calendar core: tables, custom and recurring events, scheduler, views,
+   roster paste import.
+3. Rule and template extraction, suggestion strip, inbox backfill,
+   roster-by-email.
+4. AI extraction with cost measurement; optional screenshot roster import.

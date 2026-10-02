@@ -82,19 +82,41 @@
   {{end}}
 
   {{if .VAPIDPublicKey}}
-  <div id="push-section" style="margin-top:20px;padding:12px 14px;background:color-mix(in srgb,var(--surface) 60%,transparent);border:1px solid var(--border);border-radius:4px">
-    <div style="font-weight:600;font-size:12px;margin-bottom:6px">push notifications</div>
-    <p id="push-status" style="color:var(--muted);font-size:12px;margin-bottom:10px">
-      {{if .PushCount}}push notifications enabled ({{.PushCount}} device{{if ne .PushCount 1}}s{{end}}){{else}}not subscribed{{end}}
-    </p>
-    <button id="push-toggle" class="act-p" type="button" data-vapid-key="{{.VAPIDPublicKey}}">{{if .PushCount}}disable{{else}}enable{{end}}</button>
-    <p id="push-error" style="color:var(--danger);font-size:11px;margin-top:6px;display:none"></p>
-  </div>
+  {{template "push_section" .}}
   {{else}}
   <div style="margin-top:20px;padding:12px 14px;background:color-mix(in srgb,var(--surface) 60%,transparent);border:1px solid var(--border);border-radius:4px">
     <div style="font-weight:600;font-size:12px;margin-bottom:6px">push notifications</div>
     <p style="color:var(--muted);font-size:12px">not configured. Run <code>comstac vapid</code> to generate keys and add them to your environment.</p>
   </div>
+  {{end}}
+</div>
+{{end}}
+
+{{define "push_section"}}
+<div id="push-section" style="margin-top:20px;padding:12px 14px;background:color-mix(in srgb,var(--surface) 60%,transparent);border:1px solid var(--border);border-radius:4px">
+  <div style="font-weight:600;font-size:12px;margin-bottom:6px">push notifications</div>
+  <p id="push-status" style="color:var(--muted);font-size:12px;margin-bottom:10px">
+    {{if .PushCount}}{{.PushCount}} device{{if ne .PushCount 1}}s{{end}} subscribed{{else}}no devices subscribed{{end}}<span id="push-device-state"></span>
+  </p>
+  <button id="push-toggle" class="act-p" type="button" data-vapid-key="{{.VAPIDPublicKey}}">enable on this device</button>
+  <button class="act-s" type="button"
+          hx-post="/ui/push/test"
+          hx-target="#push-section"
+          hx-swap="outerHTML">send test</button>
+  <p id="push-error" style="color:var(--danger);font-size:11px;margin-top:6px;display:none"></p>
+  {{if .PushTestResult}}<p class="push-test-result" style="color:var(--muted);font-size:11px;margin-top:8px">{{.PushTestResult}}.</p>{{end}}
+  {{if .PushDeliveries}}
+  <table class="push-log" style="margin-top:10px;font-size:11px;color:var(--muted);border-collapse:collapse">
+    <tr style="color:var(--dim);text-align:left"><th style="font-weight:normal">time</th><th style="font-weight:normal">kind</th><th style="font-weight:normal">service</th><th style="font-weight:normal">result</th></tr>
+    {{range .PushDeliveries}}
+    <tr>
+      <td style="padding-right:10px;white-space:nowrap">{{fmtFullDate .CreatedAt}}</td>
+      <td style="padding-right:10px">{{.Kind}}</td>
+      <td style="padding-right:10px">{{.EndpointHost}}</td>
+      <td{{if or (eq .Status 0) (ge .Status 400)}} style="color:var(--danger)"{{end}}>{{if .Status}}{{.Status}}{{else}}failed{{end}}{{if .Error}} · {{.Error}}{{end}}</td>
+    </tr>
+    {{end}}
+  </table>
   {{end}}
 </div>
 {{end}}

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -157,7 +158,21 @@ type payload struct {
 	Title     string `json:"title"`
 	Body      string `json:"body"`
 	MessageID int64  `json:"message_id,omitempty"`
+	// Tag identifies the notification on the device. Distinct tags keep a
+	// burst of mail from collapsing into a single notification.
+	Tag string `json:"tag,omitempty"`
 }
+
+// Delivery settings. A short TTL makes the push service discard a message
+// whenever the device is briefly unreachable (Doze, network change), and
+// normal urgency lets Android defer it; both caused missed notifications.
+const (
+	mailTTL      = 24 * 60 * 60 // seconds
+	reminderTTL  = 24 * 60 * 60
+	testTTL      = 5 * 60
+	pushUrgency  = webpush.UrgencyHigh
+	maxErrorText = 200
+)
 
 // SendNewMail dispatches a "new mail" push notification to all subscriptions
 // and emits a new_mail event to all connected agent SSE clients.
@@ -167,40 +182,58 @@ func (n *Notifier) SendNewMail(ctx context.Context, subject, from string, messag
 	if n.agentClients != nil {
 		n.agentClients.EmitNewMail(messageID, from, subject)
 	}
-	n.sendPush(ctx, "comstac", subject, from, messageID)
+	n.sendPush(ctx, "mail", mailTTL, payload{
+		Title: "comstac", Body: notificationBody(subject, from),
+		MessageID: messageID, Tag: fmt.Sprintf("mail-%d", messageID),
+	})
 }
 
 // SendReminder dispatches a "snooze expired" push notification to all
 // subscriptions.
 func (n *Notifier) SendReminder(ctx context.Context, subject, from string, messageID int64) {
-	n.sendPush(ctx, "comstac reminder", subject, from, messageID)
+	n.sendPush(ctx, "reminder", reminderTTL, payload{
+		Title: "comstac reminder", Body: notificationBody(subject, from),
+		MessageID: messageID, Tag: fmt.Sprintf("reminder-%d", messageID),
+	})
 }
 
-func (n *Notifier) sendPush(ctx context.Context, title, subject, from string, messageID int64) {
+// SendTest sends a test notification to every subscription and reports how
+// many the push services accepted. Results are also recorded in the delivery
+// log.
+func (n *Notifier) SendTest(ctx context.Context) (accepted, total int) {
+	return n.sendPush(ctx, "test", testTTL, payload{
+		Title: "comstac", Body: "test notification", Tag: "test",
+	})
+}
+
+func notificationBody(subject, from string) string {
+	if from != "" {
+		return fmt.Sprintf("%s — %s", from, subject)
+	}
+	return subject
+}
+
+func (n *Notifier) sendPush(ctx context.Context, kind string, ttl int, p payload) (accepted, total int) {
 	subs, err := store.ListPushSubscriptions(ctx, n.db)
 	if err != nil {
 		slog.Error("push: list subscriptions", "err", err)
-		return
+		return 0, 0
 	}
 	if len(subs) == 0 {
-		return
+		return 0, 0
 	}
 
-	body := subject
-	if from != "" {
-		body = fmt.Sprintf("%s — %s", from, subject)
-	}
-	p := payload{Title: title, Body: body, MessageID: messageID}
 	msg, _ := json.Marshal(p)
-
 	opts := &webpush.Options{
 		Subscriber:      n.vapidSubject,
 		VAPIDPublicKey:  n.vapidPublic,
 		VAPIDPrivateKey: n.vapidPrivate,
-		TTL:             30,
+		TTL:             ttl,
+		Urgency:         pushUrgency,
 	}
 
 	for _, sub := range subs {
+		host := endpointHost(sub.Endpoint)
 		ws := &webpush.Subscription{
 			Endpoint: sub.Endpoint,
 			Keys: webpush.Keys{
@@ -208,24 +241,59 @@ func (n *Notifier) sendPush(ctx context.Context, title, subject, from string, me
 				Auth:   sub.Auth,
 			},
 		}
+		rec := store.PushDelivery{Kind: kind, EndpointHost: host}
 		resp, err := webpush.SendNotificationWithContext(ctx, msg, ws, opts)
 		if err != nil {
-			slog.Warn("push: send failed", "err", err)
-			continue
-		}
-		if resp.StatusCode == http.StatusGone {
-			resp.Body.Close()
-			slog.Info("push: subscription expired, removing")
-			_ = store.DeletePushSubscription(ctx, n.db, sub.Endpoint)
-		} else if resp.StatusCode >= 400 {
+			// net/http errors embed the request URL, which is the
+			// subscription capability; keep only the host.
+			errText := strings.ReplaceAll(err.Error(), sub.Endpoint, "https://"+host+"/…")
+			rec.Error = truncate(errText, maxErrorText)
+			slog.Warn("push: send failed", "kind", kind, "host", host, "err", errText)
+		} else {
+			rec.Status = resp.StatusCode
 			var bodyBytes [512]byte
 			n2, _ := resp.Body.Read(bodyBytes[:])
 			resp.Body.Close()
-			slog.Warn("push: unexpected status", "status", resp.StatusCode, "body", string(bodyBytes[:n2]))
-		} else {
-			resp.Body.Close()
+			switch {
+			case resp.StatusCode == http.StatusGone || resp.StatusCode == http.StatusNotFound:
+				// The subscription no longer exists at the push service.
+				rec.Error = "subscription expired; removed"
+				slog.Info("push: subscription expired, removing", "host", host, "status", resp.StatusCode)
+				_ = store.DeletePushSubscription(ctx, n.db, sub.Endpoint)
+			case resp.StatusCode >= 400:
+				rec.Error = truncate(strings.ReplaceAll(string(bodyBytes[:n2]), sub.Endpoint, "https://"+host+"/…"), maxErrorText)
+				slog.Warn("push: unexpected status", "kind", kind, "host", host, "status", resp.StatusCode, "body", rec.Error)
+			default:
+				accepted++
+				slog.Info("push: delivered to push service", "kind", kind, "host", host, "status", resp.StatusCode)
+			}
 		}
+		total++
+		// Record with a fresh context so a timed-out send is still logged.
+		recCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := store.RecordPushDelivery(recCtx, n.db, rec); err != nil {
+			slog.Error("push: record delivery", "err", err)
+		}
+		cancel()
 	}
+	return accepted, total
+}
+
+// endpointHost returns only the push service host; the full endpoint URL is a
+// capability and is never logged or stored outside push_subscriptions.
+func endpointHost(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return "unknown"
+	}
+	return u.Host
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
 }
 
 // GenerateVAPIDKeys generates a new VAPID key pair.

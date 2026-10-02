@@ -130,3 +130,25 @@ func TestWakeDueSnoozesResurfacesInboxMessages(t *testing.T) {
 		t.Fatalf("snoozed view after wake = %v, want [2]", got)
 	}
 }
+
+func TestPushDeliveryLogIsBounded(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, err := store.OpenAndMigrate(ctx, filepath.Join(t.TempDir(), "pushlog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for i := 0; i < 205; i++ {
+		if err := store.RecordPushDelivery(ctx, db, store.PushDelivery{Kind: fmt.Sprintf("k%d", i), EndpointHost: "h", Status: 201}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := store.ListPushDeliveries(ctx, db, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 200 || all[0].Kind != "k204" {
+		t.Fatalf("log has %d rows, newest %q; want 200 newest k204", len(all), all[0].Kind)
+	}
+}

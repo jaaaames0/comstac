@@ -136,7 +136,8 @@ func actionBtn(id int64, action, value, label, class string) template.HTML {
 type indexData struct {
 	CSRFToken      string
 	CSPNonce       string
-	IMAPAuthFailed bool // true when the IMAP token source has an active invalid_grant error
+	IMAPAuthFailed bool   // true when the IMAP token source has an active invalid_grant error
+	VAPIDPublicKey string // lets app.js repair this device's push subscription on load
 }
 
 type errorData struct {
@@ -274,6 +275,8 @@ type accountsData struct {
 	// Push notifications
 	VAPIDPublicKey string // base64url-encoded; empty when push is not configured
 	PushCount      int    // number of currently registered push subscriptions
+	PushDeliveries []store.PushDelivery
+	PushTestResult string
 
 	ImageSenders []store.RemoteImageSender
 }

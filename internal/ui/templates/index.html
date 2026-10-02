@@ -798,7 +798,7 @@
     }
   </style>
 </head>
-<body hx-headers='{"X-CSRF-Token":"{{.CSRFToken}}"}'>
+<body hx-headers='{"X-CSRF-Token":"{{.CSRFToken}}"}'{{if .VAPIDPublicKey}} data-vapid-key="{{.VAPIDPublicKey}}"{{end}}>
 
   <header class="topbar">
     <span class="brand" id="brand-btn">

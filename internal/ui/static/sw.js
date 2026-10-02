@@ -10,7 +10,7 @@ self.addEventListener('push', function(event) {
     body: data.body || 'New message',
     icon: '/static/icon-192.png',
     badge: '/static/icon-192.png',
-    tag: 'comstac-mail',
+    tag: data.tag || 'comstac',
     renotify: true,
     data: { messageId: data.message_id || null }
   };
@@ -32,4 +32,16 @@ self.addEventListener('notificationclick', function(event) {
       return clients.openWindow(target);
     })
   );
+});
+
+// The push service rotated or expired the subscription. Re-subscribe with the
+// same server key; the page re-registers the new endpoint with the server on
+// its next load (the worker has no CSRF token to do so itself).
+self.addEventListener('pushsubscriptionchange', function(event) {
+  var old = event.oldSubscription;
+  if (!old || !old.options || !old.options.applicationServerKey) return;
+  event.waitUntil(self.registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: old.options.applicationServerKey
+  }));
 });

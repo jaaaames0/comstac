@@ -26,7 +26,19 @@ type UIConfig struct {
 
 	// Web Push (VAPID) — set when COMSTAC_VAPID_* env vars are configured.
 	VAPIDPublicKey string // base64url-encoded; passed to template for browser PushManager.subscribe
+
+	// PushTester sends a test notification; nil when push is not configured.
+	PushTester PushTester
 }
+
+// PushTester sends a test notification to every subscription and reports how
+// many the push services accepted.
+type PushTester interface {
+	SendTest(ctx context.Context) (accepted, total int)
+}
+
+// pushLogLimit is how many recent deliveries the accounts page shows.
+const pushLogLimit = 15
 
 func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UIConfig) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
@@ -40,10 +52,15 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UICon
 			imapAuthFailed = authErr != nil
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		vapidKey := ""
+		if uiCfg != nil {
+			vapidKey = uiCfg.VAPIDPublicKey
+		}
 		execute(w, "index", indexData{
 			CSRFToken:      CSRFToken(req.Context()),
 			CSPNonce:       CSPNonce(req.Context()),
 			IMAPAuthFailed: imapAuthFailed,
+			VAPIDPublicKey: vapidKey,
 		})
 	})
 
@@ -162,8 +179,10 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UICon
 			vapidPublicKey = uiCfg.VAPIDPublicKey
 		}
 		pushCount := 0
+		var deliveries []store.PushDelivery
 		if vapidPublicKey != "" {
 			pushCount, _ = store.CountPushSubscriptions(req.Context(), db)
+			deliveries, _ = store.ListPushDeliveries(req.Context(), db, pushLogLimit)
 		}
 		imageSenders, err := store.ListRemoteImageSenders(req.Context(), db)
 		if err != nil {
@@ -176,6 +195,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UICon
 			IMAPAuthFailedAt: imapAuthFailedAt,
 			VAPIDPublicKey:   vapidPublicKey,
 			PushCount:        pushCount,
+			PushDeliveries:   deliveries,
 			ImageSenders:     imageSenders,
 		})
 	})
@@ -542,6 +562,31 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UICon
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("/ui/push/test", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if uiCfg == nil || uiCfg.PushTester == nil || uiCfg.VAPIDPublicKey == "" {
+			renderUIError(w, http.StatusServiceUnavailable, "push notifications are not configured")
+			return
+		}
+		ctx, cancel := context.WithTimeout(req.Context(), 20*time.Second)
+		accepted, total := uiCfg.PushTester.SendTest(ctx)
+		cancel()
+		data := accountsData{VAPIDPublicKey: uiCfg.VAPIDPublicKey}
+		data.PushCount, _ = store.CountPushSubscriptions(req.Context(), db)
+		data.PushDeliveries, _ = store.ListPushDeliveries(req.Context(), db, pushLogLimit)
+		switch {
+		case total == 0:
+			data.PushTestResult = "no subscribed devices"
+		default:
+			data.PushTestResult = fmt.Sprintf("test accepted by the push service for %d of %d device(s). If no notification appears, delivery is failing between the push service and the device", accepted, total)
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		execute(w, "push_section", data)
 	})
 
 	mux.HandleFunc("/ui/push/unsubscribe", func(w http.ResponseWriter, req *http.Request) {

@@ -55,3 +55,48 @@ func CountPushSubscriptions(ctx context.Context, db *sql.DB) (int, error) {
 	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM push_subscriptions`).Scan(&n)
 	return n, err
 }
+
+// pushDeliveryLogLimit bounds the delivery log.
+const pushDeliveryLogLimit = 200
+
+// PushDelivery is one recorded Web Push delivery attempt. Status is the push
+// service HTTP status, or 0 when the request itself failed.
+type PushDelivery struct {
+	CreatedAt    string
+	Kind         string
+	EndpointHost string
+	Status       int
+	Error        string
+}
+
+// RecordPushDelivery appends a delivery attempt and trims the log.
+func RecordPushDelivery(ctx context.Context, db *sql.DB, d PushDelivery) error {
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO push_deliveries (kind, endpoint_host, status, error) VALUES (?, ?, ?, ?)`,
+		d.Kind, d.EndpointHost, d.Status, d.Error); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx,
+		`DELETE FROM push_deliveries WHERE id <= (SELECT MAX(id) FROM push_deliveries) - ?`,
+		pushDeliveryLogLimit)
+	return err
+}
+
+// ListPushDeliveries returns the most recent delivery attempts, newest first.
+func ListPushDeliveries(ctx context.Context, db *sql.DB, limit int) ([]PushDelivery, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT created_at, kind, endpoint_host, status, error FROM push_deliveries ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PushDelivery
+	for rows.Next() {
+		var d PushDelivery
+		if err := rows.Scan(&d.CreatedAt, &d.Kind, &d.EndpointHost, &d.Status, &d.Error); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}

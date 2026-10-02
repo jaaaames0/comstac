@@ -217,6 +217,9 @@ func main() {
 			TokenSource:    ts,
 			VAPIDPublicKey: cfg.VAPIDPublicKey,
 		}
+		if pushNotifier != nil {
+			uiCfg.PushTester = pushNotifier
+		}
 	}
 
 	apiSrv := api.New(cfg.HTTPAddr, db, authMgr, outRelay, uiCfg, agentClients)
