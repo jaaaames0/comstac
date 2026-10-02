@@ -386,16 +386,13 @@ func extractHTMLPart(contentType, transferEncoding string, body io.Reader) strin
 			if partErr != nil {
 				break
 			}
-			parsedType := part.Header.Get("Content-Type")
-			parsedEncoding := part.Header.Get("Content-Transfer-Encoding")
-			ptMediaType, _, _ := mime.ParseMediaType(parsedType)
-			if ptMediaType == "text/html" {
-				decoded := decodeBody(parsedEncoding, part)
-				content, readErr := io.ReadAll(io.LimitReader(decoded, 1024*1024))
-				if readErr != nil {
-					return ""
-				}
-				return string(content)
+			if disp, _, _ := mime.ParseMediaType(part.Header.Get("Content-Disposition")); disp == "attachment" {
+				continue
+			}
+			// Recurse so nested structures such as multipart/mixed wrapping
+			// multipart/alternative still yield their text/html part.
+			if html := extractHTMLPart(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part); html != "" {
+				return html
 			}
 		}
 		return ""
