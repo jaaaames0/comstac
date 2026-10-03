@@ -48,6 +48,23 @@
         </div>
       </div>
 
+      {{/* Dates and attachments open compact panels, keeping the body full height. */}}
+      <div class="dropdown dropdown--cal" hx-get="/ui/calendar/suggestions?message={{.ID}}" hx-trigger="load" hx-swap="outerHTML">
+        <button class="act-s cal-btn" type="button" disabled title="looking for dates" aria-label="dates">{{template "icon_cal"}}</button>
+      </div>
+      {{if .Attachments}}
+      <div class="dropdown">
+        <button class="act-s dropdown-btn" type="button" title="attachments" aria-label="attachments">{{template "icon_clip"}} {{len .Attachments}}</button>
+        <div class="dropdown-menu att-menu">
+          {{range .Attachments}}
+          <a class="dm-item att-item" href="/ui/attachment?id={{$.ID}}&part={{.Index}}" download>
+            <span class="att-name">{{.Filename}}</span>{{if .ContentType}}<span class="att-type">{{.ContentType}}</span>{{end}}
+          </a>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+
       {{/* Restore (if trashed) or secondary actions (if in inbox) */}}
       {{if .Archived}}
         {{actionBtn .ID "archive" "0" "restore" "act-s"}}
@@ -110,19 +127,6 @@
   <div class="snooze-banner">snoozed until {{fmtSnooze .SnoozeUntil}}</div>
   {{end}}
 </div>
-
-<div class="cal-suggest" hx-get="/ui/calendar/suggestions?message={{.ID}}" hx-trigger="load" hx-swap="outerHTML"></div>
-
-{{if .Attachments}}
-<div class="attachments">
-  <div class="att-label">attachments</div>
-  {{range .Attachments}}
-  <a class="att-link" href="/ui/attachment?id={{$.ID}}&part={{.Index}}" download>
-    {{.Filename}}{{if .ContentType}} <span class="att-type">({{.ContentType}})</span>{{end}}
-  </a>
-  {{end}}
-</div>
-{{end}}
 
 <div class="msg-body{{if .BodyHTML}} msg-body--html{{end}}">
   {{if .BodyHTML}}

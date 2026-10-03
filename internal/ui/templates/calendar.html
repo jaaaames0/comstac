@@ -181,26 +181,56 @@
 </div>
 {{end}}
 
+{{/* The header's calendar button and its dates panel. Actions inside the
+     panel replace the panel in place and the button out of band. */}}
 {{define "calendar_suggestions"}}
-<div class="cal-suggest" id="cal-suggest-{{.MessageID}}">{{if or .Items .Roster .Notice .AI}}
-  <div class="cs-head">dates found</div>
+<div class="dropdown dropdown--cal">
+  {{template "calendar_button" .}}
+  <div class="dropdown-menu cal-menu" id="cal-menu-{{.MessageID}}">{{template "calendar_panel" .}}</div>
+</div>
+{{end}}
+
+{{define "icon_cal"}}<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/></svg>{{end}}
+{{define "icon_clip"}}<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7.5 8 12.5a3 3 0 0 1-4.2-4.2l5.3-5.3a2 2 0 0 1 2.8 2.8L6.6 11a1 1 0 0 1-1.4-1.4L10 4.8"/></svg>{{end}}
+
+{{define "calendar_panel_update"}}{{template "calendar_panel" .}}{{template "calendar_button" .}}{{end}}
+
+{{define "calendar_button"}}
+{{if eq .State "off"}}
+<button class="act-s cal-btn" id="cal-btn-{{.MessageID}}" type="button" disabled title="no upcoming dates in this email"{{if .Update}} hx-swap-oob="true"{{end}} aria-label="dates">{{template "icon_cal"}}</button>
+{{else if eq .State "ai"}}
+<button class="act-s dropdown-btn cal-btn" id="cal-btn-{{.MessageID}}" type="button" title="find dates with AI"
+        hx-post="/ui/calendar/suggestion" hx-target="#cal-menu-{{.MessageID}}" hx-swap="innerHTML" hx-sync="this:drop"
+        hx-vals='{"message":"{{.MessageID}}","action":"ai"}'{{if .Update}} hx-swap-oob="true"{{end}}>{{template "icon_cal"}} AI</button>
+{{else}}
+<button class="{{if eq .State "pending"}}act-p{{else}}act-s{{end}} dropdown-btn cal-btn{{if eq .State "checked"}} cal-btn--quiet{{end}}" id="cal-btn-{{.MessageID}}" type="button"
+        title="{{if eq .State "pending"}}dates to add{{else if eq .State "added"}}in your calendar{{else}}no new dates found{{end}}"{{if .Update}} hx-swap-oob="true"{{end}} aria-label="dates">{{template "icon_cal"}}{{if .Pending}} {{.Pending}}{{else if eq .State "added"}} ✓{{end}}</button>
+{{end}}
+{{end}}
+
+{{define "calendar_panel"}}
   {{if .Notice}}<div class="cs-notice">{{.Notice}}</div>{{end}}
+  {{$asking := and (eq .State "ai") (not .Update)}}{{/* the button's first click is asking AI */}}
+  {{if $asking}}<div class="cs-empty">checking with AI…</div>{{end}}
   {{range .Items}}
-  <div class="cs-item k-{{.Kind}}{{if .Added}} cs-added{{end}}">
+  <div class="cs-item k-{{.Kind}}{{if .Added}} cs-added{{end}}{{if .Dismissed}} cs-dismissed{{end}}">
     <div class="cs-main">
       <span class="cs-when">{{.When}}</span>
       <span class="cs-title">{{.Title}}</span>
       {{if .Location}}<span class="cs-loc">{{.Location}}</span>{{end}}
       {{if .UpdatesWhen}}<span class="cs-update">changes your event from {{.UpdatesWhen}}</span>{{end}}
+      {{if .Dismissed}}<span class="cs-loc">dismissed earlier</span>{{else if and .Elsewhere (not .Added)}}<span class="cs-loc">also in another email</span>{{end}}
     </div>
     <div class="cs-acts">
       {{if .Added}}
       <a class="cs-link" href="/?calendar={{.Date}}">in calendar ✓</a>
       {{else}}
-      <button class="act-p cs-btn" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
+      <button class="act-p cs-btn" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-menu-{{$.MessageID}}" hx-swap="innerHTML"
               hx-vals='{"id":"{{.ID}}","message":"{{$.MessageID}}","action":"accept"}'>{{if .UpdatesWhen}}update{{else}}add{{end}}</button>
-      <button class="act-s cs-btn" type="button" title="dismiss" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
+      {{if not .Dismissed}}
+      <button class="act-s cs-btn" type="button" title="dismiss" hx-post="/ui/calendar/suggestion" hx-target="#cal-menu-{{$.MessageID}}" hx-swap="innerHTML"
               hx-vals='{"id":"{{.ID}}","message":"{{$.MessageID}}","action":"dismiss"}'>×</button>
+      {{end}}
       {{end}}
     </div>
   </div>
@@ -218,23 +248,23 @@
     </div>
     {{if not .Error}}
     <div class="cs-acts">
-      <button class="act-p cs-btn" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
+      <button class="act-p cs-btn" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-menu-{{$.MessageID}}" hx-swap="innerHTML"
               hx-vals='{"message":"{{$.MessageID}}","action":"roster"}'>import</button>
     </div>
     {{end}}
   </div>
   {{end}}
-  {{with .AI}}
+  {{if and (not .Items) (not .Roster) (not .Notice) (ne .State "ai")}}<div class="cs-empty">no upcoming dates found</div>{{end}}
+  {{if not $asking}}{{with .AI}}
   <div class="cs-ai">
-    <button class="act-s cs-btn cs-ai-btn" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
+    <button class="act-s cs-btn cs-ai-btn" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-menu-{{$.MessageID}}" hx-swap="innerHTML"
             hx-disabled-elt="this" hx-vals='{"message":"{{$.MessageID}}","action":"ai"}'>{{if .LastRun}}check again with AI{{else}}find dates with AI{{end}}</button>
     {{if .LastRun}}<span class="cs-ai-last">{{.LastRun}}</span>{{end}}
     {{if .Domain}}
-    <button class="cs-ai-auto{{if .DomainAuto}} on{{end}}" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-suggest-{{$.MessageID}}" hx-swap="outerHTML"
+    <button class="cs-ai-auto{{if .DomainAuto}} on{{end}}" type="button" hx-post="/ui/calendar/suggestion" hx-target="#cal-menu-{{$.MessageID}}" hx-swap="innerHTML"
             hx-vals='{"message":"{{$.MessageID}}","action":"{{if .DomainAuto}}ai_sender_off{{else}}ai_sender_on{{end}}"}'
             title="check new mail from this sender with AI automatically">{{if .DomainAuto}}✓ {{end}}always for {{.Domain}}</button>
     {{end}}
   </div>
-  {{end}}
-  {{end}}</div>
+  {{end}}{{end}}
 {{end}}

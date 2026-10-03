@@ -44,7 +44,21 @@ correct events on the booking set at about $0.0005 per email;
 qwen/qwen3.7-flash 15 at about $0.0001; openai/gpt-4.1-nano 13 with airport
 and time errors; openai/gpt-5-nano failed every call (provider content-policy
 400); minimax/minimax-m2.7 ignored the schema. No noise email produced an
-event.
+event. Later the same day openai/gpt-6-luna and gpt-6-luna-pro also returned
+`content_policy_violation` for a bare "Say hi" through NanoGPT, while
+gpt-4.1-nano and Gemini answered; OpenAI's newer reasoning models appear to
+be blocked upstream for this account, so the UI now shows NanoGPT's reason.
+
+Message view (2026-10-03): the "dates found" strip and the attachment list
+moved out of the body into header buttons with compact popover panels, so
+the body keeps the full height. The calendar button is greyed out when
+nothing was found and the email names no upcoming date
+(`extract.MentionsUpcomingDate`); shows a count of dates to add; and, when
+the rules found nothing but upcoming dates are mentioned, asks AI on its
+first click. Migration 0019 (`message_event_refs`) records every dedupe key
+a message's rules or AI found, so an email naming a flight another email
+already suggested (or that was dismissed there) shows it too and can add
+it; extractor version 2 rescans the inbox to fill these in.
 
 Not yet built: time-zone choice for manual events,
 and multi-day timed events spanning the grid.

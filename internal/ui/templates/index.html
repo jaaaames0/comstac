@@ -534,31 +534,24 @@
     }
     .act-trash:hover { background: rgba(248,81,73,.18); border-color: rgba(248,81,73,.4); }
 
-    /* ── Attachments ─────────────────────────────────────────────── */
-    .attachments {
-      margin: 0 24px 16px;
-      padding: 10px 12px;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 3px;
-      flex-shrink: 0;
+    /* ── Header panels: attachments and dates ────────────────────── */
+    .att-menu { max-width: min(420px, calc(100vw - 16px)); max-height: 60vh; overflow-y: auto; }
+    .att-item { display: flex; justify-content: space-between; gap: 12px; color: var(--accent); text-decoration: none; }
+    .att-name { overflow: hidden; text-overflow: ellipsis; }
+    .att-type { color: var(--dim); font-size: 11px; flex-shrink: 0; }
+    .ico {
+      width: 13px; height: 13px; vertical-align: -2px;
+      fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round;
     }
-    .att-label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      color: var(--dim);
-      margin-bottom: 8px;
+    .cal-btn:disabled { opacity: .35; cursor: default; }
+    .cal-btn--quiet { color: var(--dim); }
+    .cal-menu {
+      width: min(460px, calc(100vw - 16px));
+      max-height: 60vh;
+      overflow-y: auto;
+      padding: 6px 10px;
+      gap: 0;
     }
-    .att-link {
-      display: block;
-      font-size: 12px;
-      color: var(--accent);
-      text-decoration: none;
-      padding: 2px 0;
-    }
-    .att-link:hover { text-decoration: underline; }
-    .att-type { color: var(--dim); font-size: 11px; }
 
     /* ── Message body ────────────────────────────────────────────── */
     /* Wrapper makes msg-header + body fill the reader as a flex column */
@@ -892,9 +885,8 @@
     .cal-form, .cal-roster { padding: 16px; }
 
     /* "dates found" strip in the message view */
-    .cal-suggest:empty { display: none; }
-    .cal-suggest { padding: 8px 24px 4px; border-bottom: 1px solid var(--border-sub); }
-    .cs-head { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
+    .cs-empty { font-size: 11px; color: var(--dim); padding: 4px 0; }
+    .cal-btn.htmx-request::after { content: " …"; }
     .cs-notice { font-size: 11px; color: var(--accent); margin-bottom: 4px; }
     .cs-item {
       display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -917,7 +909,7 @@
       font-family: var(--mono); font-size: 11px; color: var(--dim);
     }
     .cs-ai-auto:hover, .cs-ai-auto.on { color: var(--accent); }
-    @media (max-width: 680px) { .cal-suggest { padding: 8px 14px 4px; } }
+    .cs-dismissed .cs-title { color: var(--muted); }
     .cal-row { display: flex; gap: 10px; align-items: flex-end; }
     .cal-row .form-field { flex: 1; }
     .cal-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); margin: 0 10px 6px 0; }
@@ -1333,8 +1325,9 @@
           }
           return;
         }
-        // Keep the menu open while using the custom snooze picker.
-        if (e.target.closest('.dm-custom')) return;
+        // Keep the menu open while using the custom snooze picker or the
+        // dates panel.
+        if (e.target.closest('.dm-custom, .cal-menu')) return;
         closeAllDropdowns();
       });
 

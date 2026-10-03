@@ -21,7 +21,8 @@ import (
 
 // fakeAPI imitates NanoGPT's chat completions and models endpoints.
 type fakeAPI struct {
-	status  []int // per-call statuses for chat completions; default 200
+	status  []int  // per-call statuses for chat completions; default 200
+	errBody string // error body for non-200 statuses
 	finish  string
 	content string
 	last    map[string]any
@@ -44,7 +45,11 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Request-ID", "req-123")
 	if n := f.calls - 1; n < len(f.status) && f.status[n] != 200 {
 		w.WriteHeader(f.status[n])
-		_, _ = w.Write([]byte(`{"error":{"message":"nope","type":"x","code":"insufficient_balance"}}`))
+		body := f.errBody
+		if body == "" {
+			body = `{"error":{"message":"nope","type":"x","code":"insufficient_balance"}}`
+		}
+		_, _ = w.Write([]byte(body))
 		return
 	}
 	resp := map[string]any{
@@ -112,6 +117,14 @@ func TestClientStatuses(t *testing.T) {
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.Status != 402 || !strings.Contains(err.Error(), "balance") || f.calls != 1 {
 		t.Fatalf("402: %v (calls %d)", err, f.calls)
+	}
+	// A content-policy block keeps NanoGPT's explanation and is not retried.
+	f = &fakeAPI{status: []int{400}, errBody: `{"error":{"message":"Your prompt was blocked\nby safety filters.","status":400,"type":"content_policy_violation","code":"content_policy_violation"}}`}
+	c = testClient(t, f)
+	_, err = c.Propose(context.Background(), "x")
+	if !errors.As(err, &apiErr) || !apiErr.PolicyBlocked() || f.calls != 1 ||
+		err.Error() != "NanoGPT status 400 (content_policy_violation): Your prompt was blocked by safety filters." {
+		t.Fatalf("policy block: %v (calls %d)", err, f.calls)
 	}
 	// 503 is retried once, then succeeds.
 	f = &fakeAPI{status: []int{503, 200}, finish: "stop", content: `{"events":[]}`}

@@ -14,6 +14,7 @@ import (
 
 	"comstac/internal/aiextract"
 	"comstac/internal/calendar"
+	"comstac/internal/extract"
 	"comstac/internal/store"
 )
 
@@ -26,6 +27,8 @@ type suggestionView struct {
 	Added       bool
 	Date        string // home-zone start date, for the calendar link
 	UpdatesWhen string // current time of the event an update suggestion changes
+	Elsewhere   bool   // the event belongs to another email naming the same booking
+	Dismissed   bool   // dismissed earlier (from another email); can still be added
 }
 
 type rosterHint struct {
@@ -41,6 +44,16 @@ type suggestionStripData struct {
 	Roster    *rosterHint
 	Notice    string
 	AI        *aiStripView // nil when AI is disabled or the message is ineligible
+	// State drives the header's calendar button:
+	//   off     nothing found and nothing worth asking AI about (greyed out)
+	//   ai      rules found nothing but the email names upcoming dates; one
+	//           click asks AI
+	//   pending suggestions waiting (Pending of them)
+	//   added   everything found is in the calendar
+	//   checked AI has looked and found nothing new
+	State   string
+	Pending int
+	Update  bool // rendered as an htmx response: refresh the button out of band
 }
 
 type aiStripView struct {
@@ -70,7 +83,20 @@ func describeAIRun(r *store.AIRun) string {
 	case "truncated":
 		return "AI answer was cut short " + when
 	}
+	if r.Error != "" {
+		return "AI request failed " + when + ": " + r.Error
+	}
 	return "AI request failed " + when
+}
+
+// aiFailure explains a failed AI run to the user.
+func aiFailure(err error, model string) string {
+	var apiErr *aiextract.APIError
+	if errors.As(err, &apiErr) && apiErr.PolicyBlocked() {
+		return "NanoGPT's content filter blocked the request for " + model +
+			". Some models block every request, harmless or not; try a different COMSTAC_AI_MODEL."
+	}
+	return err.Error()
 }
 
 // defaultReminders are applied when a suggestion is added with one click.
@@ -154,24 +180,56 @@ func buildSuggestionStrip(ctx context.Context, db *sql.DB, ai AIExtractor, messa
 		return data, err
 	}
 	for _, ev := range events {
-		v := suggestionView{ID: ev.ID, Kind: ev.Kind, Title: ev.Title, Location: ev.Location, Added: ev.Status == store.CalendarConfirmed}
+		v := suggestionView{ID: ev.ID, Kind: ev.Kind, Title: ev.Title, Location: ev.Location, Added: ev.Status == store.CalendarConfirmed,
+			Elsewhere: ev.MessageID != messageID, Dismissed: ev.Status == store.CalendarDismissed}
 		v.When, v.Date = describeWhen(ev)
 		if target := ev.SuggestionDetails().Updates; target != 0 && !v.Added {
 			if old, err := store.GetCalendarEvent(ctx, db, target); err == nil && old != nil {
 				v.UpdatesWhen, _ = describeWhen(*old)
 			}
 		}
+		if !v.Added {
+			data.Pending++
+		}
 		data.Items = append(data.Items, v)
 	}
+	mentions := false
 	if detail, err := store.GetMessageDetail(ctx, db, messageID); err == nil && detail != nil {
-		_, data.Roster = rosterFromMessage(ctx, db, detail)
+		if _, data.Roster = rosterFromMessage(ctx, db, detail); data.Roster != nil {
+			data.Pending++
+		}
 		if ai != nil && !detail.Archived && !detail.Spam {
 			last, _ := store.LastAIRun(ctx, db, messageID)
 			data.AI = &aiStripView{LastRun: describeAIRun(last), Domain: store.SenderDomain(detail.FromAddr)}
 			data.AI.DomainAuto = data.AI.Domain != "" && store.AIDomainListed(ctx, db, detail.FromAddr)
+			if len(data.Items) == 0 && last == nil {
+				mentions = extract.MentionsUpcomingDate(extract.Input{
+					Subject: detail.Subject, Date: detailDate(detail), Text: detail.BodyText, HTML: detail.BodyHTML,
+				}, time.Now())
+			}
 		}
 	}
+	switch {
+	case data.Pending > 0:
+		data.State = "pending"
+	case len(data.Items) > 0:
+		data.State = "added"
+	case data.AI != nil && data.AI.LastRun != "":
+		data.State = "checked"
+	case mentions:
+		data.State = "ai"
+	default:
+		data.State = "off"
+	}
 	return data, nil
+}
+
+// detailDate is when the message was sent, for resolving relative dates.
+func detailDate(d *store.MessageDetail) time.Time {
+	if t, err := mail.ParseDate(d.DateHdr); err == nil {
+		return t
+	}
+	return time.Now()
 }
 
 func registerSuggestionRoutes(mux *http.ServeMux, db *sql.DB, ai AIExtractor) {
@@ -184,6 +242,12 @@ func registerSuggestionRoutes(mux *http.ServeMux, db *sql.DB, ai AIExtractor) {
 		}
 		data.Notice = notice
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if req.Method == http.MethodPost {
+			// Actions refresh the open panel in place and the button out of band.
+			data.Update = true
+			execute(w, "calendar_panel_update", data)
+			return
+		}
 		execute(w, "calendar_suggestions", data)
 	}
 
@@ -211,7 +275,7 @@ func registerSuggestionRoutes(mux *http.ServeMux, db *sql.DB, ai AIExtractor) {
 		switch req.FormValue("action") {
 		case "accept":
 			ev, err := store.GetCalendarEvent(req.Context(), db, id)
-			if err != nil || ev == nil || ev.MessageID != messageID {
+			if err != nil || ev == nil || !store.MessageNamesEvent(req.Context(), db, messageID, ev) {
 				renderUIError(w, http.StatusNotFound, "suggestion not found")
 				return
 			}
@@ -227,7 +291,7 @@ func registerSuggestionRoutes(mux *http.ServeMux, db *sql.DB, ai AIExtractor) {
 			}
 		case "dismiss":
 			ev, err := store.GetCalendarEvent(req.Context(), db, id)
-			if err != nil || ev == nil || ev.MessageID != messageID {
+			if err != nil || ev == nil || !store.MessageNamesEvent(req.Context(), db, messageID, ev) {
 				renderUIError(w, http.StatusNotFound, "suggestion not found")
 				return
 			}
@@ -271,15 +335,17 @@ func registerSuggestionRoutes(mux *http.ServeMux, db *sql.DB, ai AIExtractor) {
 				notice = "AI is not used for spam or trash"
 			case err != nil:
 				slog.Warn("ai date extraction", "component", "ui", "message_id", messageID, "err", err)
-				notice = "AI request failed; nothing was added"
+				notice = "AI request failed: " + aiFailure(err, ai.Model())
 			case sum.Status == "refused":
 				notice = "AI declined to read this message"
 			case sum.Status == "truncated":
 				notice = "AI answer was cut short; nothing was added"
 			case sum.Created == 0 && sum.Kept == 0:
 				notice = "AI found no new dates · " + formatUSD(sum.CostMicroUSD)
+			case sum.Created < sum.Kept:
+				notice = fmt.Sprintf("AI found %d date(s), %d new, %d already known · %s", sum.Kept, sum.Created, sum.Kept-sum.Created, formatUSD(sum.CostMicroUSD))
 			default:
-				notice = fmt.Sprintf("AI found %d date(s), %d new · %s", sum.Kept, sum.Created, formatUSD(sum.CostMicroUSD))
+				notice = fmt.Sprintf("AI found %d date(s) · %s", sum.Kept, formatUSD(sum.CostMicroUSD))
 			}
 		case "ai_sender_on", "ai_sender_off":
 			detail, err := store.GetMessageDetail(req.Context(), db, messageID)

@@ -14,6 +14,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -97,11 +98,18 @@ type chatResponse struct {
 	} `json:"error"`
 }
 
+var reControlChars = regexp.MustCompile(`[\x00-\x1f\x7f]+`)
+
 // APIError is a non-2xx answer from NanoGPT.
 type APIError struct {
-	Status int
-	Code   string
+	Status  int
+	Code    string
+	Message string // NanoGPT's explanation, if any
 }
+
+// PolicyBlocked reports whether NanoGPT refused the prompt under a content
+// policy. Some models reject every prompt this way, whatever it contains.
+func (e *APIError) PolicyBlocked() bool { return e.Code == "content_policy_violation" }
 
 func (e *APIError) Error() string {
 	switch e.Status {
@@ -110,10 +118,14 @@ func (e *APIError) Error() string {
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return fmt.Sprintf("NanoGPT rejected the API key (%d)", e.Status)
 	}
+	msg := fmt.Sprintf("NanoGPT status %d", e.Status)
 	if e.Code != "" {
-		return fmt.Sprintf("NanoGPT status %d (%s)", e.Status, e.Code)
+		msg += " (" + e.Code + ")"
 	}
-	return fmt.Sprintf("NanoGPT status %d", e.Status)
+	if e.Message != "" {
+		msg += ": " + e.Message
+	}
+	return msg
 }
 
 func retryable(status int) bool {
@@ -164,8 +176,11 @@ func (c *Client) Propose(ctx context.Context, prompt string) (Response, error) {
 	_ = json.Unmarshal(raw, &parsed)
 	if status < 200 || status > 299 {
 		apiErr := &APIError{Status: status}
-		if parsed.Error != nil && parsed.Error.Code != nil {
-			apiErr.Code = fmt.Sprint(parsed.Error.Code)
+		if parsed.Error != nil {
+			if parsed.Error.Code != nil {
+				apiErr.Code = fmt.Sprint(parsed.Error.Code)
+			}
+			apiErr.Message = truncate(strings.TrimSpace(reControlChars.ReplaceAllString(parsed.Error.Message, " ")), 200)
 		}
 		return Response{RequestID: reqID}, apiErr
 	}

@@ -15,7 +15,7 @@ import (
 )
 
 // Version identifies the extractor behaviour. Bumping it re-scans messages.
-const Version = 1
+const Version = 2
 
 // HomeZone is the default zone for dates without a better-known place.
 const HomeZone = "Australia/Sydney"

@@ -117,7 +117,20 @@ func replaceSuggestionsTx(ctx context.Context, tx *sql.Tx, messageID int64, ai b
 		AND COALESCE(json_extract(details, '$.extractor'), '') `+op+` ?`, messageID, CalendarSuggested, aiExtractorPrefix+"%"); err != nil {
 		return 0, fmt.Errorf("clear suggestions: %w", err)
 	}
+	aiFlag := 0
+	if ai {
+		aiFlag = 1
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_event_refs WHERE message_id = ? AND ai = ?`, messageID, aiFlag); err != nil {
+		return 0, fmt.Errorf("clear refs: %w", err)
+	}
 	for _, s := range suggestions {
+		if s.DedupeKey != "" {
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO message_event_refs (message_id, dedupe_key, ai) VALUES (?, ?, ?)`,
+				messageID, s.DedupeKey, aiFlag); err != nil {
+				return 0, fmt.Errorf("record ref: %w", err)
+			}
+		}
 		if s.TZ == "" {
 			s.TZ = "Australia/Sydney" // the stored default, so comparisons match
 		}
@@ -183,23 +196,66 @@ func replaceSuggestionsTx(ctx context.Context, tx *sql.Tx, messageID int64, ai b
 }
 
 // ListMessageCalendarEvents returns a message's pending suggestions and the
-// events already added from it.
+// events already added from it, plus events other messages own under a key
+// this message's extraction also found: their suggestions, confirmed events
+// and dismissed suggestions (offered again, since this message names them
+// too). A dismissed event is left out when another event shares its key, and
+// a confirmed event when an update suggestion for it is listed.
 func ListMessageCalendarEvents(ctx context.Context, db *sql.DB, messageID int64) ([]CalendarEvent, error) {
 	rows, err := db.QueryContext(ctx, `SELECT `+calendarEventColumns+` FROM calendar_events
-		WHERE message_id = ? AND status IN (?, ?) ORDER BY start_local, id`, messageID, CalendarSuggested, CalendarConfirmed)
+		WHERE (message_id = ? AND status IN (?, ?))
+		   OR (COALESCE(message_id, 0) <> ? AND status IN (?, ?, ?)
+		       AND dedupe_key IN (SELECT dedupe_key FROM message_event_refs WHERE message_id = ?))
+		ORDER BY start_local, id`,
+		messageID, CalendarSuggested, CalendarConfirmed,
+		messageID, CalendarSuggested, CalendarConfirmed, CalendarDismissed, messageID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []CalendarEvent
+	var all []CalendarEvent
+	live := map[string]bool{}
+	updated := map[int64]bool{} // confirmed events a listed suggestion would change
 	for rows.Next() {
 		e, err := scanCalendarEvent(rows)
 		if err != nil {
 			return nil, err
 		}
+		if e.Status != CalendarDismissed && e.DedupeKey != "" {
+			live[e.DedupeKey] = true
+		}
+		if e.Status == CalendarSuggested {
+			if u := e.SuggestionDetails().Updates; u != 0 {
+				updated[u] = true
+			}
+		}
+		all = append(all, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var out []CalendarEvent
+	for _, e := range all {
+		if (e.Status == CalendarDismissed && live[e.DedupeKey]) || updated[e.ID] {
+			continue
+		}
 		out = append(out, e)
 	}
-	return out, rows.Err()
+	return out, nil
+}
+
+// MessageNamesEvent reports whether an event belongs to the message or
+// shares a key its extraction found, so the message's strip may act on it.
+func MessageNamesEvent(ctx context.Context, db *sql.DB, messageID int64, e *CalendarEvent) bool {
+	if e.MessageID == messageID {
+		return true
+	}
+	if e.DedupeKey == "" {
+		return false
+	}
+	var n int
+	_ = db.QueryRowContext(ctx, `SELECT count(*) FROM message_event_refs WHERE message_id = ? AND dedupe_key = ?`, messageID, e.DedupeKey).Scan(&n)
+	return n > 0
 }
 
 // ErrNotSuggestion is returned when acting on an event that is not a pending
@@ -217,7 +273,8 @@ func AcceptSuggestion(ctx context.Context, db *sql.DB, id int64, offsets []int) 
 	}
 	defer tx.Rollback()
 	s, err := scanCalendarEvent(tx.QueryRowContext(ctx, `SELECT `+calendarEventColumns+` FROM calendar_events WHERE id = ?`, id))
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && s.Status != CalendarSuggested) {
+	// A dismissed suggestion can still be added from a message that names it.
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && s.Status != CalendarSuggested && s.Status != CalendarDismissed) {
 		return 0, ErrNotSuggestion
 	}
 	if err != nil {

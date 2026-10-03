@@ -3,6 +3,7 @@ package extract
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFromProposalsChecksEvidenceAndDates(t *testing.T) {
@@ -134,5 +135,30 @@ func TestFromProposalsCorrectsModelSlips(t *testing.T) {
 	s := got[2]
 	if !s.AllDay || s.StartLocal != "2026-12-16" || s.EndLocal != "2026-12-22" || s.Notes != "Check-in from 13:00\nCheck-out by 10:00\nBooking 1" {
 		t.Fatalf("stay = %+v", s)
+	}
+}
+
+func TestMentionsUpcomingDate(t *testing.T) {
+	now := time.Date(2026, 10, 3, 10, 0, 0, 0, time.UTC)
+	sent := now.Add(-time.Hour)
+	for _, c := range []struct {
+		text string
+		want bool
+	}{
+		{"Flight JQ460 on 22/12/2026", true},
+		{"See you Tue 22 Dec", true},
+		{"Your quote expires in 14 days", true},
+		{"Your order shipped on 1 October 2026", false},
+		{"Thanks for subscribing", false},
+	} {
+		in := Input{Subject: "hello", Text: c.text, Date: sent}
+		if got := MentionsUpcomingDate(in, now); got != c.want {
+			t.Errorf("%q = %v, want %v", c.text, got, c.want)
+		}
+	}
+	// A relative phrase in an old email has already passed.
+	old := Input{Text: "expires in 14 days", Date: now.AddDate(0, -2, 0)}
+	if MentionsUpcomingDate(old, now) {
+		t.Error("stale relative date counted")
 	}
 }

@@ -88,8 +88,8 @@ func TestSuggestionLifecycle(t *testing.T) {
 	if updated.StartLocal != "2026-12-22T09:15" || updated.Title != "Flight home" || len(updated.Reminders) != 2 {
 		t.Fatalf("update must change times only: %+v", updated)
 	}
-	if got := messageEvents(t, db, 20); got != "[]" {
-		t.Fatalf("update suggestion should be gone: %s", got)
+	if got := messageEvents(t, db, 20); got != "[confirmed 2026-12-22T09:15 updates=0]" {
+		t.Fatalf("update suggestion should be gone, leaving the event it names: %s", got)
 	}
 	// The original itinerary scanned again now matches the confirmed event? No:
 	// it still says 09:25, so it becomes an update suggestion (the user decides).
@@ -117,12 +117,59 @@ func TestNewerMessageSupersedesOlderSuggestion(t *testing.T) {
 	db := openSuggestionDB(t)
 	store.SaveExtraction(ctx, db, 10, 1, []store.CalendarEvent{flightSuggestion("2026-12-22T09:25", "")})
 	store.SaveExtraction(ctx, db, 20, 1, []store.CalendarEvent{flightSuggestion("2026-12-22T09:15", "")})
-	if a, b := messageEvents(t, db, 10), messageEvents(t, db, 20); a != "[]" || b != "[suggested 2026-12-22T09:15 updates=0]" {
+	// The older message still shows the flight it names, in the newer times.
+	if a, b := messageEvents(t, db, 10), messageEvents(t, db, 20); a != "[suggested 2026-12-22T09:15 updates=0]" || b != a {
 		t.Fatalf("older should be superseded: 10=%s 20=%s", a, b)
 	}
 	// An older message scanned later does not override the newer suggestion.
 	store.SaveExtraction(ctx, db, 5, 1, []store.CalendarEvent{flightSuggestion("2026-12-22T09:00", "")})
-	if a, b := messageEvents(t, db, 5), messageEvents(t, db, 20); a != "[]" || b != "[suggested 2026-12-22T09:15 updates=0]" {
+	if a, b := messageEvents(t, db, 5), messageEvents(t, db, 20); a != "[suggested 2026-12-22T09:15 updates=0]" || b != a {
 		t.Fatalf("older scan won: 5=%s 20=%s", a, b)
+	}
+}
+
+func TestMessagesShareEventsTheyBothName(t *testing.T) {
+	ctx := context.Background()
+	db := openSuggestionDB(t)
+	// An itinerary (30) suggests the flight; the booking confirmation (31)
+	// names the same flight via AI and creates nothing new, but shows it.
+	store.SaveExtraction(ctx, db, 30, 2, []store.CalendarEvent{flightSuggestion("2026-12-22T09:15", "")})
+	ai := flightSuggestion("2026-12-22T09:15", "")
+	ai.Details = `{"extractor":"ai:test"}`
+	if n, err := store.SaveAISuggestions(ctx, db, 31, []store.CalendarEvent{ai}); err != nil || n != 0 {
+		t.Fatalf("created %d, %v", n, err)
+	}
+	if got := messageEvents(t, db, 31); got != "[suggested 2026-12-22T09:15 updates=0]" {
+		t.Fatalf("31 = %s", got)
+	}
+	evs, _ := store.ListMessageCalendarEvents(ctx, db, 31)
+	id := evs[0].ID
+	if !store.MessageNamesEvent(ctx, db, 31, &evs[0]) || store.MessageNamesEvent(ctx, db, 32, &evs[0]) {
+		t.Fatal("MessageNamesEvent")
+	}
+
+	// Dismissed on its own message, it stays hidden there but is offered
+	// again on the other message naming it, and can be added from there.
+	if err := store.DismissSuggestion(ctx, db, id); err != nil {
+		t.Fatal(err)
+	}
+	if a, b := messageEvents(t, db, 30), messageEvents(t, db, 31); a != "[]" || b != "[dismissed 2026-12-22T09:15 updates=0]" {
+		t.Fatalf("after dismiss: 30=%s 31=%s", a, b)
+	}
+	if _, err := store.AcceptSuggestion(ctx, db, id, nil); err != nil {
+		t.Fatal(err)
+	}
+	if a, b := messageEvents(t, db, 30), messageEvents(t, db, 31); a != "[confirmed 2026-12-22T09:15 updates=0]" || b != a {
+		t.Fatalf("after accept: 30=%s 31=%s", a, b)
+	}
+
+	// A rule rescan of 31 keeps its AI refs; a new AI run replaces them.
+	store.SaveExtraction(ctx, db, 31, 2, nil)
+	if got := messageEvents(t, db, 31); got != "[confirmed 2026-12-22T09:15 updates=0]" {
+		t.Fatalf("rule rescan dropped AI refs: %s", got)
+	}
+	store.SaveAISuggestions(ctx, db, 31, nil)
+	if got := messageEvents(t, db, 31); got != "[]" {
+		t.Fatalf("AI rerun kept stale refs: %s", got)
 	}
 }
