@@ -389,7 +389,18 @@ func WakeDueSnoozes(ctx context.Context, db *sql.DB, now time.Time) ([]WokenSnoo
 	return woken, nil
 }
 
+// SearchMessages searches for all whitespace-separated terms as literal text.
 func SearchMessages(ctx context.Context, db *sql.DB, q string, limit int) ([]MessageListItem, error) {
+	terms := strings.Fields(q)
+	if len(terms) == 0 {
+		return []MessageListItem{}, nil
+	}
+	// SQL parameters do not escape FTS5's own query language. Quote each
+	// term so hyphens, addresses, quotes and operator words stay search text.
+	for i, term := range terms {
+		terms[i] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
+	}
+	query := strings.Join(terms, " AND ")
 	if limit <= 0 {
 		limit = 50
 	}
@@ -414,7 +425,7 @@ func SearchMessages(ctx context.Context, db *sql.DB, q string, limit int) ([]Mes
 		WHERE messages_fts MATCH ?
 		ORDER BY rank
 		LIMIT ?
-	`, q, limit)
+	`, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search messages: %w", err)
 	}

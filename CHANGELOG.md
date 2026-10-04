@@ -6,6 +6,12 @@ This project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+- Search treats whitespace-separated terms as literal text, including hyphens,
+  email addresses, quotes and words such as `OR`, instead of FTS5 query syntax.
+- Empty or failed searches preserve the message-list container so inbox, home
+  and other navigation cannot replace the entire page with a message list.
+
 ### Changed
 - **Load images remembers the sender**: the per-message `load images` action
   now also adds the exact `From` mailbox to the automatic remote-image list

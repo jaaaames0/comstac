@@ -453,7 +453,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UICon
 		items, err := store.SearchMessages(req.Context(), db, q, 50)
 		if err != nil {
 			slog.Error("search messages", "component", "ui", "err", err)
-			execute(w, "search_error", struct{ Msg string }{Msg: "Search temporarily unavailable."})
+			execute(w, "search_error", errorData{Msg: "Search temporarily unavailable."})
 			return
 		}
 		opts := store.ListMessageOptions{Limit: 50}
