@@ -3,10 +3,15 @@ package relay
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
+	"net"
 	"net/textproto"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,8 +30,16 @@ type Config struct {
 
 // Relay sends outbound mail through a smart-host.
 type Relay struct {
-	cfg Config
+	cfg         Config
+	dialContext func(context.Context, string, string) (net.Conn, error)
+	tlsConfig   *tls.Config
 }
+
+const sendTimeout = 45 * time.Second
+
+// ErrDeliveryUnknown marks transport failure after DATA began. Remote
+// acceptance cannot be inferred from a disconnected socket; never auto-retry.
+var ErrDeliveryUnknown = errors.New("delivery could not be confirmed; check sent mail or with the recipient before resending")
 
 func New(cfg Config) *Relay {
 	return &Relay{cfg: cfg}
@@ -53,21 +66,86 @@ type OutboundMessage struct {
 
 // Send constructs a MIME message and delivers it through the relay.
 // Returns the generated Message-ID and raw MIME bytes.
-func (r *Relay) Send(_ context.Context, msg OutboundMessage) (msgID string, rawMIME []byte, err error) {
+func (r *Relay) Send(ctx context.Context, msg OutboundMessage) (msgID string, rawMIME []byte, err error) {
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
 	msgID = generateMessageID(r.cfg.From)
 	rawMIME = buildRawMIME(r.cfg.From, msg, msgID)
 
-	addr := fmt.Sprintf("%s:%d", r.cfg.Host, r.cfg.Port)
+	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+	addr := net.JoinHostPort(r.cfg.Host, strconv.Itoa(r.cfg.Port))
+	dial := r.dialContext
+	if dial == nil {
+		dial = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
+	}
+	conn, err := dial(ctx, "tcp", addr)
+	if err != nil {
+		return msgID, rawMIME, relayError(ctx, err, false)
+	}
+	defer conn.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	tlsConfig := r.tlsConfig
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{ServerName: r.cfg.Host, MinVersion: tls.VersionTLS12}
+	}
+	c, err := gosmtp.NewClientStartTLS(conn, tlsConfig)
+	if err != nil {
+		return msgID, rawMIME, relayError(ctx, err, false)
+	}
+	defer c.Close()
+	c.CommandTimeout = 15 * time.Second
+	c.SubmissionTimeout = 40 * time.Second
 	saslClient := sasl.NewPlainClient("", r.cfg.Username, r.cfg.Password)
+	if ok, _ := c.Extension("AUTH"); !ok {
+		return msgID, rawMIME, relayError(ctx, errors.New("server does not support AUTH"), false)
+	}
+	if err := c.Auth(saslClient); err != nil {
+		return msgID, rawMIME, relayError(ctx, err, false)
+	}
 
 	rcptTo := make([]string, 0, len(msg.To)+len(msg.CC)+len(msg.BCC))
 	rcptTo = append(rcptTo, msg.To...)
 	rcptTo = append(rcptTo, msg.CC...)
 	rcptTo = append(rcptTo, msg.BCC...)
-	if err := gosmtp.SendMail(addr, saslClient, r.cfg.From, rcptTo, bytes.NewReader(rawMIME)); err != nil {
-		return msgID, rawMIME, fmt.Errorf("smtp relay: %w", err)
+	if err := c.Mail(r.cfg.From, nil); err != nil {
+		return msgID, rawMIME, relayError(ctx, err, false)
 	}
+	for _, addr := range rcptTo {
+		if err := c.Rcpt(addr, nil); err != nil {
+			return msgID, rawMIME, relayError(ctx, err, false)
+		}
+	}
+	w, err := c.Data()
+	if err != nil {
+		return msgID, rawMIME, relayError(ctx, err, false)
+	}
+	if _, err := io.Copy(w, bytes.NewReader(rawMIME)); err != nil {
+		return msgID, rawMIME, relayError(ctx, err, true)
+	}
+	if err := w.Close(); err != nil {
+		return msgID, rawMIME, relayError(ctx, err, true)
+	}
+	// The final DATA reply confirmed acceptance. QUIT/disconnect must not turn
+	// that known success into a failure inviting a duplicate submission.
 	return msgID, rawMIME, nil
+}
+
+func relayError(ctx context.Context, err error, afterDATA bool) error {
+	cause := err
+	if ctx.Err() != nil {
+		cause = ctx.Err()
+	}
+	var rejection *gosmtp.SMTPError
+	if afterDATA && !errors.As(err, &rejection) {
+		return fmt.Errorf("%w: %w", ErrDeliveryUnknown, cause)
+	}
+	return fmt.Errorf("smtp relay: %w", cause)
 }
 
 // sanitizeHeaderValue strips CR and LF characters to prevent MIME header injection.

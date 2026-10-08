@@ -380,6 +380,16 @@ aggregate warning per hour; they do not block supported messages.
 Each processing path retains one raw body, with additional bounded reader,
 driver and parsing allocations. This is a buffer bound, not a total RSS limit.
 
+Outbound SMTP has a 45-second overall deadline (or the request's earlier
+deadline), ten-second dial bound and bounded command/submission waits. It
+requires verified STARTTLS and authentication. A completed outcome is saved
+with a separate five-second history deadline so request cancellation cannot
+erase a known accepted send. If the final DATA acknowledgement is lost,
+delivery is shown as unconfirmed; Comstac does not automatically resend it.
+The existing attempt schema retains uncertainty in the error detail, without
+adding a durable outbound queue. A sent-history write failure after acceptance
+is reported as a history problem, not a failed email delivery.
+
 ```bash
 # Run locally (reads env vars from shell)
 source comstac.env && go run ./cmd/comstac

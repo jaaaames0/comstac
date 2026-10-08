@@ -9,6 +9,13 @@ and cancellation regressions, metadata-only extraction selection, bounded SQL
 reads and oversized-input progress tests. Focused checks and `make verify` pass.
 Remaining stages follow in the order below.
 
+B3 is implemented with a context-aware verified-TLS relay and shared bounded
+post-send history recording. Local SMTP tests cover cancellation at dial,
+greeting, TLS, command and DATA boundaries, certificate/host rejection, explicit
+rejection, lost acceptance and acceptance followed by disconnect. Compose/reply
+tests cover cancelled requests, failed history writes and uncertainty display.
+Focused checks and `make verify` pass; B4 is next.
+
 ## Starting point
 
 The candidate already contains B1 (retry-safe Gmail checkpoints), B2 (ordinary

@@ -13,6 +13,7 @@ import (
 	"time"
 	_ "time/tzdata" // embed IANA timezone data so Australia/Sydney works without system tzdata
 
+	"comstac/internal/relay"
 	"comstac/internal/store"
 	"comstac/internal/validation"
 	"golang.org/x/net/html"
@@ -28,6 +29,7 @@ var tmpl *template.Template
 
 func init() {
 	funcMap := template.FuncMap{
+		"unconfirmed": func(message string) bool { return strings.Contains(message, relay.ErrDeliveryUnknown.Error()) },
 		"fmtTime":     fmtTime,
 		"fmtFullDate": fmtFullDate,
 		"fmtSender":   fmtSender,
@@ -325,6 +327,7 @@ func newSentListData(items []store.OutboundListItem, limit int) sentListData {
 }
 
 type sendSuccessData struct {
+	Warning string
 	To      string
 	Subject string
 }

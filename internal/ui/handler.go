@@ -53,6 +53,19 @@ type PushTester interface {
 const pushLogLimit = 15
 
 func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UIConfig) {
+	var sender mailSender
+	if r != nil {
+		sender = r
+	}
+	registerRoutes(mux, db, sender, uiCfg)
+}
+
+type mailSender interface {
+	Send(context.Context, relay.OutboundMessage) (string, []byte, error)
+	From() string
+}
+
+func registerRoutes(mux *http.ServeMux, db *sql.DB, r mailSender, uiCfg *UIConfig) {
 	registerNotificationActionRoutes(mux, db)
 	registerCalendarRoutes(mux, db)
 	var ai AIExtractor
@@ -280,20 +293,9 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UICon
 			execute(w, "compose", composeData{Subject: subject, Body: body})
 			return
 		}
-		msgID, rawMIME, sendErr := r.Send(req.Context(), relay.OutboundMessage{
-			To: to, CC: cc, BCC: bcc, Subject: subject, BodyText: body, Attachments: attachments,
-		})
-		if db != nil {
-			if _, err := store.SaveOutbound(req.Context(), db, r.From(), strings.Join(to, ", "), subject, body, msgID, 0, rawMIME, sendErr); err != nil {
-				slog.Error("save outbound", "component", "ui", "err", err)
-			}
-		}
-		if sendErr != nil {
-			slog.Error("compose send", "component", "ui", "err", sendErr)
-			execute(w, "send_error", sendErrorData{Msg: sendErr.Error()})
-			return
-		}
-		execute(w, "send_success", sendSuccessData{To: strings.Join(to, ", "), Subject: subject})
+		msg := relay.OutboundMessage{To: to, CC: cc, BCC: bcc, Subject: subject, BodyText: body, Attachments: attachments}
+		sendErr, historyErr := sendAndRecord(req.Context(), db, r, msg, 0)
+		renderSendResult(w, msg, sendErr, historyErr)
 	})
 
 	mux.HandleFunc("/ui/forward", func(w http.ResponseWriter, req *http.Request) {
@@ -395,21 +397,10 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UICon
 			}
 		}
 
-		msgID, rawMIME, sendErr := r.Send(req.Context(), relay.OutboundMessage{
-			To: to, CC: cc, BCC: bcc, Subject: subject, BodyText: body,
-			InReplyTo: inReplyTo, References: references, Attachments: attachments,
-		})
-		if db != nil {
-			if _, err := store.SaveOutbound(req.Context(), db, r.From(), strings.Join(to, ", "), subject, body, msgID, replyToID, rawMIME, sendErr); err != nil {
-				slog.Error("save outbound", "component", "ui", "err", err)
-			}
-		}
-		if sendErr != nil {
-			slog.Error("reply send", "component", "ui", "err", sendErr)
-			execute(w, "send_error", sendErrorData{Msg: sendErr.Error()})
-			return
-		}
-		execute(w, "send_success", sendSuccessData{To: strings.Join(to, ", "), Subject: subject})
+		msg := relay.OutboundMessage{To: to, CC: cc, BCC: bcc, Subject: subject, BodyText: body,
+			InReplyTo: inReplyTo, References: references, Attachments: attachments}
+		sendErr, historyErr := sendAndRecord(req.Context(), db, r, msg, replyToID)
+		renderSendResult(w, msg, sendErr, historyErr)
 	})
 
 	mux.HandleFunc("/ui/sent", func(w http.ResponseWriter, req *http.Request) {
@@ -762,7 +753,7 @@ func extractAttachments(req *http.Request) []relay.Attachment {
 
 // buildReplyAllCC returns a comma-separated CC string for reply-all:
 // the original To + Cc recipients, excluding the relay's own address.
-func buildReplyAllCC(detail *store.MessageDetail, r *relay.Relay) string {
+func buildReplyAllCC(detail *store.MessageDetail, r mailSender) string {
 	ownAddr := ""
 	if r != nil {
 		ownAddr = strings.ToLower(r.From())

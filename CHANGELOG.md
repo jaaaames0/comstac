@@ -7,6 +7,10 @@ This project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Fixed
+- Outbound SMTP obeys cancellation and bounded deadlines, and known accepted
+  sends are recorded even after HTTP disconnect. History-write failures are
+  surfaced without inviting resend; ambiguous DATA outcomes are shown as
+  unconfirmed and never retried automatically.
 - IMAP imports check size metadata and stream one bounded MIME body at a time;
   date extraction selects metadata and loads individual bounded bodies rather
   than retaining whole batches. Oversized imports remain retryable, and oversized
