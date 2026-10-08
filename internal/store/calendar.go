@@ -325,6 +325,18 @@ func ClaimCalendarReminder(ctx context.Context, db *sql.DB, eventID int64, occur
 	return n > 0, err
 }
 
+// ReleaseCalendarReminder makes a rejected enqueue retryable. Only the exact
+// claimed occurrence and offset are released; accepted reminders stay claimed.
+func ReleaseCalendarReminder(ctx context.Context, db *sql.DB, eventID int64, occurrenceStart time.Time, offset int) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM calendar_reminder_fires
+		WHERE event_id = ? AND occurrence_start = ? AND offset_minutes = ?`,
+		eventID, occurrenceStart.UTC().Format(time.RFC3339), offset)
+	if err != nil {
+		return fmt.Errorf("release calendar reminder: %w", err)
+	}
+	return nil
+}
+
 // CountRosterShifts counts roster events starting within [fromDate, toDate].
 func CountRosterShifts(ctx context.Context, db *sql.DB, fromDate, toDate string) (int, error) {
 	var n int

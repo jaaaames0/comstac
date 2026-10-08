@@ -257,3 +257,84 @@ func TestAllDayReminderUsesLocalMidnightBase(t *testing.T) {
 		t.Fatalf("all-day reminder = %v", rec.events)
 	}
 }
+
+func TestOrdinaryReminderRetriesQueueRejectionOrDisabledNotifier(t *testing.T) {
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("disabled=%t", disabled), func(t *testing.T) {
+			ctx := context.Background()
+			db := openDB(t)
+			start := time.Date(2026, 10, 6, 11, 45, 0, 0, sydney)
+			ev := &store.CalendarEvent{Title: "Work", StartLocal: start.Format("2006-01-02T15:04"), RRule: "FREQ=WEEKLY"}
+			if _, err := store.SaveCalendarEvent(ctx, db, ev, []int{60, 15}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`UPDATE calendar_reminders SET created_at = '2026-09-01T00:00:00Z'`); err != nil {
+				t.Fatal(err)
+			}
+			rec := &recordingNotifier{rejectEvents: true}
+			s := New(db, time.Second, rec, sydney)
+			if disabled {
+				s = New(db, time.Second, nil, sydney)
+			}
+			if err := s.sendEventReminders(ctx, start.Add(-time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			var claims int
+			if err := db.QueryRow(`SELECT count(*) FROM calendar_reminder_fires`).Scan(&claims); err != nil {
+				t.Fatal(err)
+			}
+			if claims != 0 {
+				t.Fatalf("undelivered reminder consumed: %d claims", claims)
+			}
+			// Recreate the scheduler: the retry depends on SQLite, not memory.
+			rec.rejectEvents = false
+			s = New(db, time.Second, rec, sydney)
+			for _, now := range []time.Time{start.Add(-59 * time.Minute), start.Add(-58 * time.Minute)} {
+				if err := s.sendEventReminders(ctx, now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(rec.notifications) != 1 || rec.notifications[0].SourceKey != "offset:60" || !rec.notifications[0].Occurrence.Equal(start) {
+				t.Fatalf("retry notifications = %+v", rec.notifications)
+			}
+			if err := s.sendEventReminders(ctx, start.Add(-15*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.sendEventReminders(ctx, start.Add(-14*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.QueryRow(`SELECT count(*) FROM calendar_reminder_fires`).Scan(&claims); err != nil {
+				t.Fatal(err)
+			}
+			if len(rec.notifications) != 2 || claims != 2 {
+				t.Fatalf("notifications = %d, claims = %d", len(rec.notifications), claims)
+			}
+		})
+	}
+}
+
+func TestRejectedOrdinaryReminderDoesNotRetryOutsideGrace(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	start := time.Date(2026, 10, 6, 11, 45, 0, 0, sydney)
+	ev := &store.CalendarEvent{Title: "Work", StartLocal: start.Format("2006-01-02T15:04")}
+	if _, err := store.SaveCalendarEvent(ctx, db, ev, []int{60}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE calendar_reminders SET created_at = '2026-09-01T00:00:00Z'`); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordingNotifier{rejectEvents: true}
+	s := New(db, time.Second, rec, sydney)
+	fireAt := start.Add(-time.Hour)
+	if err := s.sendEventReminders(ctx, fireAt); err != nil {
+		t.Fatal(err)
+	}
+	rec.rejectEvents = false
+	if err := s.sendEventReminders(ctx, fireAt.Add(reminderGrace)); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.events) != 0 {
+		t.Fatalf("stale retry: %v", rec.events)
+	}
+}

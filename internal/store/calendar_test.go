@@ -83,6 +83,39 @@ func TestCalendarEventLifecycle(t *testing.T) {
 	}
 }
 
+func TestReleaseCalendarReminderOnlyReleasesExactIdentity(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenAndMigrate(ctx, filepath.Join(t.TempDir(), "claims.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	start := time.Date(2026, 10, 6, 11, 45, 0, 0, time.FixedZone("AEDT", 11*60*60))
+	type identity struct {
+		event  int64
+		start  time.Time
+		offset int
+	}
+	claims := []identity{{1, start, 60}, {1, start, 15}, {1, start.AddDate(0, 0, 7), 60}, {2, start, 60}}
+	for _, c := range claims {
+		if ok, err := store.ClaimCalendarReminder(ctx, db, c.event, c.start, c.offset); !ok || err != nil {
+			t.Fatalf("claim: %t %v", ok, err)
+		}
+	}
+	// Release using UTC as a caller after restart would; identity is zone-independent.
+	for i := 0; i < 2; i++ {
+		if err := store.ReleaseCalendarReminder(ctx, db, 1, start.UTC(), 60); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, c := range claims {
+		ok, err := store.ClaimCalendarReminder(ctx, db, c.event, c.start, c.offset)
+		if err != nil || ok != (i == 0) {
+			t.Fatalf("claim %d: %t %v", i, ok, err)
+		}
+	}
+}
+
 func TestReplaceRosterShiftsOnlyTouchesRosterRange(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

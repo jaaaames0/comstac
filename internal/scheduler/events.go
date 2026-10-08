@@ -16,6 +16,9 @@ import (
 const reminderGrace = 6 * time.Hour
 
 func (s *Scheduler) sendEventReminders(ctx context.Context, now time.Time) error {
+	if s.notifier == nil {
+		return nil // Do not consume reminders while push is disabled.
+	}
 	events, err := store.ListCalendarEvents(ctx, s.db, store.CalendarConfirmed)
 	if err != nil {
 		return err
@@ -59,14 +62,15 @@ func (s *Scheduler) sendEventReminders(ctx context.Context, now time.Time) error
 					continue
 				}
 				slog.Info("event reminder", "component", "scheduler", "event_id", ev.ID, "occurrence", occ.Start.Format(time.RFC3339), "offset_minutes", r.OffsetMinutes)
-				if s.notifier != nil {
-					title, body, url, tag := s.reminderContent(ev, occ)
-					if !s.notifier.QueueEventReminder(push.EventReminder{
-						Title: title, Body: body, URL: url, Tag: tag, EventID: ev.ID,
-						Occurrence: occ.Start, SourceKey: fmt.Sprintf("offset:%d", r.OffsetMinutes),
-					}) {
-						slog.Warn("event reminder notification dropped", "component", "scheduler", "event_id", ev.ID)
+				title, body, url, tag := s.reminderContent(ev, occ)
+				if !s.notifier.QueueEventReminder(push.EventReminder{
+					Title: title, Body: body, URL: url, Tag: tag, EventID: ev.ID,
+					Occurrence: occ.Start, SourceKey: fmt.Sprintf("offset:%d", r.OffsetMinutes),
+				}) {
+					if err := store.ReleaseCalendarReminder(ctx, s.db, ev.ID, occ.Start, r.OffsetMinutes); err != nil {
+						return err
 					}
+					slog.Warn("event reminder push queue full", "component", "scheduler", "event_id", ev.ID)
 				}
 			}
 		}
