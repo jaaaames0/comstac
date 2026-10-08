@@ -250,6 +250,7 @@ func DeleteCalendarEvent(ctx context.Context, db *sql.DB, id int64) error {
 
 func deleteCalendarEventTx(ctx context.Context, tx *sql.Tx, id int64) error {
 	for _, q := range []string{
+		`DELETE FROM calendar_notification_snoozes WHERE event_id = ?`,
 		`DELETE FROM calendar_reminder_fires WHERE event_id = ?`,
 		`DELETE FROM calendar_reminders WHERE event_id = ?`,
 		`DELETE FROM calendar_events WHERE id = ?`,

@@ -9,13 +9,14 @@ import (
 	"log/slog"
 	"time"
 
+	"comstac/internal/push"
 	"comstac/internal/store"
 )
 
 // Notifier delivers reminder notifications.
 type Notifier interface {
 	QueueReminder(subject, from string, messageID int64) bool
-	QueueEventReminder(title, body, url, tag string) bool
+	QueueEventReminder(push.EventReminder) bool
 }
 
 // Scheduler periodically resurfaces due snoozes and sends due event reminders.
@@ -71,6 +72,9 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 	if err := s.sendEventReminders(ctx, now); err != nil {
 		slog.Error("event reminders", "component", "scheduler", "err", err)
+	}
+	if err := s.sendSnoozedEventReminders(ctx, now); err != nil {
+		slog.Error("snoozed event reminders", "component", "scheduler", "err", err)
 	}
 	if err := s.scanForDates(ctx, now); err != nil {
 		slog.Error("scan mail for dates", "component", "scheduler", "err", err)

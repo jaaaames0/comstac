@@ -37,6 +37,13 @@ This project adheres to Semantic Versioning.
   whenever Gmail IMAP is configured rather than only when web OAuth was.
 
 ### Added
+- **Notification previews and actions**: mail notifications include the sender,
+  subject and up to 300 characters of plain-text message body, omitting
+  bracketed link targets while retaining readable link labels. Supported
+  browsers offer Trash and Mark read; resurfaced mail offers Snooze 1 hour and
+  Trash. Calendar reminders offer Snooze 10 minutes, persisted across restarts
+  without changing the event. Actions use the current login session and CSRF
+  protection; failures leave a notification explaining how to continue.
 - **Optional agent SSE endpoint**: `GET /api/push/sse` uses the
   `X-Agent-Token` header, emits 30-second keepalives and supports up to four
   simultaneous clients. It is absent when `COMSTAC_AGENT_TOKEN` is unset. The

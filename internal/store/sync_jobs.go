@@ -8,6 +8,15 @@ import (
 )
 
 func EnqueueIMAPSyncJob(ctx context.Context, db *sql.DB, messageID int64, action string, payload any) (bool, error) {
+	return enqueueIMAPSyncJob(ctx, db, messageID, action, payload)
+}
+
+type syncJobDB interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func enqueueIMAPSyncJob(ctx context.Context, db syncJobDB, messageID int64, action string, payload any) (bool, error) {
 	source, err := messageSource(ctx, db, messageID)
 	if err != nil {
 		return false, err
@@ -30,7 +39,7 @@ func EnqueueIMAPSyncJob(ctx context.Context, db *sql.DB, messageID int64, action
 	return true, nil
 }
 
-func messageSource(ctx context.Context, db *sql.DB, messageID int64) (string, error) {
+func messageSource(ctx context.Context, db syncJobDB, messageID int64) (string, error) {
 	var source string
 	err := db.QueryRowContext(ctx, `
 		SELECT mr.source

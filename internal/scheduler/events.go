@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"comstac/internal/calendar"
+	"comstac/internal/push"
 	"comstac/internal/store"
 )
 
@@ -60,11 +61,59 @@ func (s *Scheduler) sendEventReminders(ctx context.Context, now time.Time) error
 				slog.Info("event reminder", "component", "scheduler", "event_id", ev.ID, "occurrence", occ.Start.Format(time.RFC3339), "offset_minutes", r.OffsetMinutes)
 				if s.notifier != nil {
 					title, body, url, tag := s.reminderContent(ev, occ)
-					if !s.notifier.QueueEventReminder(title, body, url, tag) {
+					if !s.notifier.QueueEventReminder(push.EventReminder{
+						Title: title, Body: body, URL: url, Tag: tag, EventID: ev.ID,
+						Occurrence: occ.Start, SourceKey: fmt.Sprintf("offset:%d", r.OffsetMinutes),
+					}) {
 						slog.Warn("event reminder notification dropped", "component", "scheduler", "event_id", ev.ID)
 					}
 				}
 			}
+		}
+	}
+	return nil
+}
+
+func (s *Scheduler) sendSnoozedEventReminders(ctx context.Context, now time.Time) error {
+	snoozes, err := store.DueCalendarNotificationSnoozes(ctx, s.db, now, reminderGrace)
+	if err != nil {
+		return err
+	}
+	for _, snooze := range snoozes {
+		ev, err := store.GetCalendarEvent(ctx, s.db, snooze.EventID)
+		if err != nil {
+			return err
+		}
+		var occurrence *calendar.Occurrence
+		if ev != nil && ev.Status == store.CalendarConfirmed {
+			e, err := calendar.NewEvent(ev.ID, ev.Title, ev.Kind, ev.Location, ev.AllDay, ev.StartLocal, ev.EndLocal, ev.TZ, ev.RRule, ev.ExDates)
+			if err == nil {
+				for _, occ := range e.Occurrences(snooze.Occurrence, snooze.Occurrence.Add(time.Second)) {
+					if occ.Start.Equal(snooze.Occurrence) {
+						occurrence = &occ
+						break
+					}
+				}
+			}
+		}
+		// Claim obsolete occurrences too, so cancelled or moved events do not
+		// keep getting reconsidered. The calendar event itself is untouched.
+		claimed, err := store.ClaimCalendarNotificationSnooze(ctx, s.db, snooze.ID)
+		if err != nil {
+			return err
+		}
+		if !claimed || occurrence == nil || s.notifier == nil {
+			continue
+		}
+		title, body, url, tag := s.reminderContent(ev, *occurrence)
+		if !s.notifier.QueueEventReminder(push.EventReminder{
+			Title: title, Body: body, URL: url, Tag: tag, EventID: ev.ID,
+			Occurrence: occurrence.Start, SourceKey: fmt.Sprintf("snooze:%d", snooze.ID),
+		}) {
+			if err := store.ReleaseCalendarNotificationSnooze(ctx, s.db, snooze.ID); err != nil {
+				return err
+			}
+			slog.Warn("snoozed reminder push queue full", "event_id", ev.ID)
 		}
 	}
 	return nil

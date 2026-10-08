@@ -207,6 +207,27 @@ Comstac supports Web Push (VAPID) for new-mail notifications on Android and desk
 
 Once configured, a subscription toggle appears on the Accounts page in the UI.
 
+Mail notifications show the sender and subject, plus up to 300 characters of
+plain-text message body. Bracketed link destinations are omitted from the
+preview while readable link labels are retained. The device controls how much text appears collapsed
+or expanded. Tapping opens the message; dismissing does not change its state.
+
+Browsers that support notification buttons offer **Trash** and **Mark read**
+for new mail, **Snooze 1 hour** and **Trash** for resurfaced mail, and
+**Snooze 10 minutes** for calendar reminders. Unsupported browsers retain
+previews and tap-to-open. Background actions require a valid Comstac login
+session; failures show a notification with guidance to sign in or retry.
+Calendar snoozes survive restarts and do not change the event's scheduled time
+or its other reminder offsets.
+
+Android and the browser control whether notification actions require unlocking
+and which screen appears afterward. The web notification API cannot override
+those lock-screen choices; Comstac handles action buttons in the background.
+
+Run `make test-notifications` (requires Node.js) to exercise the service worker's
+notification actions, browser fallbacks, and failure handling. The Go tests
+cover authentication, CSRF, message state, IMAP sync and persisted snoozes.
+
 ---
 
 ## Backup

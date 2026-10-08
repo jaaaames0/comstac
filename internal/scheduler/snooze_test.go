@@ -9,12 +9,15 @@ import (
 	"time"
 
 	"comstac/internal/ingest"
+	"comstac/internal/push"
 	"comstac/internal/store"
 )
 
 type recordingNotifier struct {
-	mailIDs []int64
-	events  []string // "title|body|url|tag"
+	mailIDs       []int64
+	events        []string // "title|body|url|tag"
+	notifications []push.EventReminder
+	rejectEvents  bool
 }
 
 func (r *recordingNotifier) QueueReminder(_, _ string, id int64) bool {
@@ -22,8 +25,12 @@ func (r *recordingNotifier) QueueReminder(_, _ string, id int64) bool {
 	return true
 }
 
-func (r *recordingNotifier) QueueEventReminder(title, body, url, tag string) bool {
-	r.events = append(r.events, strings.Join([]string{title, body, url, tag}, "|"))
+func (r *recordingNotifier) QueueEventReminder(n push.EventReminder) bool {
+	if r.rejectEvents {
+		return false
+	}
+	r.events = append(r.events, strings.Join([]string{n.Title, n.Body, n.URL, n.Tag}, "|"))
+	r.notifications = append(r.notifications, n)
 	return true
 }
 

@@ -53,6 +53,7 @@ type PushTester interface {
 const pushLogLimit = 15
 
 func RegisterRoutes(mux *http.ServeMux, db *sql.DB, r *relay.Relay, uiCfg *UIConfig) {
+	registerNotificationActionRoutes(mux, db)
 	registerCalendarRoutes(mux, db)
 	var ai AIExtractor
 	if uiCfg != nil {

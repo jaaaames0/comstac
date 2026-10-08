@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +77,133 @@ func TestEventRemindersFireOnceWithinGrace(t *testing.T) {
 	run("2026-10-20 11:40")
 	if len(rec.events) != 4 {
 		t.Fatalf("skipped occurrence reminded: %v", rec.events)
+	}
+}
+
+func TestSnoozedCalendarNotificationSurvivesSchedulerRestart(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	start := time.Date(2026, 10, 6, 11, 45, 0, 0, sydney)
+	now := start.Add(-time.Hour)
+	ev := &store.CalendarEvent{Title: "Work", StartLocal: start.Format("2006-01-02T15:04"), RRule: "FREQ=WEEKLY"}
+	if _, err := store.SaveCalendarEvent(ctx, db, ev, []int{60}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClaimCalendarReminder(ctx, db, ev.ID, start, 60); err != nil {
+		t.Fatal(err)
+	}
+	for _, at := range []time.Time{now, now.Add(time.Minute)} {
+		if ok, err := store.SnoozeCalendarNotification(ctx, db, ev.ID, start, "offset:60", at); err != nil || !ok {
+			t.Fatalf("snooze = %v %v", ok, err)
+		}
+	}
+	rec := &recordingNotifier{}
+	s := New(db, time.Second, rec, sydney)
+	if err := s.sendSnoozedEventReminders(ctx, now.Add(9*time.Minute)); err != nil || len(rec.events) != 0 {
+		t.Fatalf("early wake = %v %v", rec.events, err)
+	}
+	// A new scheduler reads the persisted follow-up and can retry a full queue.
+	s = New(db, time.Second, rec, sydney)
+	rec.rejectEvents = true
+	if err := s.sendSnoozedEventReminders(ctx, now.Add(10*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	rec.rejectEvents = false
+	if err := s.sendSnoozedEventReminders(ctx, now.Add(10*time.Minute+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.notifications) != 1 {
+		t.Fatalf("follow-ups = %+v", rec.notifications)
+	}
+	n := rec.notifications[0]
+	if n.EventID != ev.ID || !n.Occurrence.Equal(start) || !strings.HasPrefix(n.SourceKey, "snooze:") || n.URL != "/?calendar=2026-10-06" {
+		t.Fatalf("notification = %+v", n)
+	}
+	if err := s.sendSnoozedEventReminders(ctx, now.Add(11*time.Minute)); err != nil || len(rec.events) != 1 {
+		t.Fatalf("duplicate wake = %v %v", rec.events, err)
+	}
+	// The follow-up has its own identity and can itself be snoozed once.
+	if ok, err := store.SnoozeCalendarNotification(ctx, db, ev.ID, start, n.SourceKey, now.Add(11*time.Minute)); !ok || err != nil {
+		t.Fatalf("repeat snooze = %v %v", ok, err)
+	}
+	if err := s.sendSnoozedEventReminders(ctx, now.Add(21*time.Minute)); err != nil || len(rec.events) != 2 {
+		t.Fatalf("second follow-up = %v %v", rec.events, err)
+	}
+	got, _ := store.GetCalendarEvent(ctx, db, ev.ID)
+	if got.StartLocal != ev.StartLocal || got.RRule != ev.RRule || len(got.Reminders) != 1 {
+		t.Fatalf("snooze changed the event: %+v", got)
+	}
+}
+
+func TestObsoleteCalendarNotificationSnoozesDoNotFire(t *testing.T) {
+	for _, change := range []string{"deleted", "dismissed", "skipped", "moved", "stale"} {
+		t.Run(change, func(t *testing.T) {
+			ctx := context.Background()
+			db := openDB(t)
+			start := time.Date(2026, 10, 6, 11, 45, 0, 0, sydney)
+			now := start.Add(-time.Hour)
+			ev := &store.CalendarEvent{Title: "Work", StartLocal: start.Format("2006-01-02T15:04")}
+			if _, err := store.SaveCalendarEvent(ctx, db, ev, []int{60}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.ClaimCalendarReminder(ctx, db, ev.ID, start, 60); err != nil {
+				t.Fatal(err)
+			}
+			if ok, err := store.SnoozeCalendarNotification(ctx, db, ev.ID, start, "offset:60", now); !ok || err != nil {
+				t.Fatalf("snooze = %v %v", ok, err)
+			}
+			var err error
+			switch change {
+			case "deleted":
+				err = store.DeleteCalendarEvent(ctx, db, ev.ID)
+			case "dismissed":
+				ev.Status = store.CalendarDismissed
+				_, err = store.SaveCalendarEvent(ctx, db, ev, []int{60})
+			case "skipped":
+				err = store.AddCalendarExDate(ctx, db, ev.ID, "2026-10-06")
+			case "moved":
+				ev.StartLocal = "2026-10-06T12:45"
+				_, err = store.SaveCalendarEvent(ctx, db, ev, []int{60})
+			case "stale":
+				now = now.Add(reminderGrace)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := &recordingNotifier{}
+			s := New(db, time.Second, rec, sydney)
+			if err := s.sendSnoozedEventReminders(ctx, now.Add(10*time.Minute)); err != nil || len(rec.events) != 0 {
+				t.Fatalf("obsolete reminder fired: %v %v", rec.events, err)
+			}
+			if change == "deleted" {
+				var n int
+				if err := db.QueryRow(`SELECT count(*) FROM calendar_notification_snoozes`).Scan(&n); err != nil || n != 0 {
+					t.Fatalf("orphaned snoozes: %d %v", n, err)
+				}
+			}
+		})
+	}
+}
+
+func TestRegularCalendarReminderCarriesSnoozeIdentity(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	rec := &recordingNotifier{}
+	s := New(db, time.Second, rec, sydney)
+	start := time.Now().In(sydney).Add(time.Hour).Truncate(time.Minute)
+	ev := &store.CalendarEvent{Title: "Meeting", StartLocal: start.Format("2006-01-02T15:04")}
+	if _, err := store.SaveCalendarEvent(ctx, db, ev, []int{15}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.sendEventReminders(ctx, start.Add(-15*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.notifications) != 1 {
+		t.Fatalf("notifications = %+v", rec.notifications)
+	}
+	n := rec.notifications[0]
+	if n.SourceKey != "offset:15" || n.EventID != ev.ID || !n.Occurrence.Equal(start) || n.Tag != fmt.Sprintf("event-%d-%d", ev.ID, start.Unix()) {
+		t.Fatalf("snooze identity = %+v", n)
 	}
 }
 

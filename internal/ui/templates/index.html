@@ -1122,20 +1122,40 @@
       // (or clear the pane if the active message isn't in the new results).
       // Uses the Promise returned by htmx.ajax() — resolves after the swap
       // settles, so the new rows are guaranteed to be in the DOM.
-      function loadMessages() {
+      function loadMessages(preserveSearch) {
         activePage = 'messages';
         updateNavState();
         // Capture the message ID that was active before the swap, so we can
         // re-apply the highlight regardless of what happens to activeMessageId
         // during the async load (e.g. concurrent row clicks).
         var savedId = activeMessageId;
-        htmx.ajax('GET', '/ui/messages?' + filterParams(), {target: '#message-list', swap: 'outerHTML'}).then(function() {
+        var url = preserveSearch && searchListActive
+          ? '/ui/search?q=' + encodeURIComponent(searchInput.value)
+          : '/ui/messages?' + filterParams();
+        htmx.ajax('GET', url, {target: '#message-list', swap: 'outerHTML'}).then(function() {
           var row = savedId ? document.getElementById('row-' + savedId) : null;
           if (row) {
             row.classList.add('selected');
           } else {
             clearPane();
           }
+        });
+      }
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('message', function(event) {
+          var data = event.data || {};
+          if (data.type !== 'notification-action-complete' || activePage !== 'messages') return;
+          if (String(data.messageId) === activeMessageId) {
+            if (data.action === 'trash' || data.action === 'snooze_mail') {
+              clearPane();
+            } else if (data.action === 'read') {
+              htmx.ajax('GET', '/ui/message?id=' + encodeURIComponent(data.messageId), {
+                target: '#reading-pane', swap: 'innerHTML'
+              });
+            }
+          }
+          loadMessages(true);
         });
       }
 
@@ -1173,11 +1193,13 @@
 
       // ── Search box: clear once the list shows anything but search results ──
       var searchInput = document.querySelector('.search-input');
+      var searchListActive = false;
       document.body.addEventListener('htmx:beforeRequest', function(e) {
         var target = e.detail && e.detail.target;
         if (!target || target.id !== 'message-list') return;
         var path = (e.detail.requestConfig && e.detail.requestConfig.path) || '';
-        if (path.indexOf('/ui/search') !== 0) searchInput.value = '';
+        searchListActive = path.indexOf('/ui/search') === 0;
+        if (!searchListActive) searchInput.value = '';
       });
 
       // ── After pane content changes: open/close + sync row read state ──

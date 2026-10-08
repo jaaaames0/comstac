@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -93,11 +95,21 @@ func (n *Notifier) QueueReminder(subject, from string, messageID int64) bool {
 	}
 }
 
-// QueueEventReminder queues a calendar event reminder. url is the in-app page
-// opened when the notification is clicked; tag identifies the occurrence.
-func (n *Notifier) QueueEventReminder(title, body, url, tag string) bool {
+// EventReminder identifies the occurrence and delivered reminder so notification
+// snoozes affect only this occurrence and repeated requests are idempotent.
+type EventReminder struct {
+	Title, Body, URL, Tag string
+	EventID               int64
+	Occurrence            time.Time
+	SourceKey             string
+}
+
+func (n *Notifier) QueueEventReminder(r EventReminder) bool {
 	select {
-	case n.queue <- newMailNotification{event: &payload{Title: title, Body: body, URL: url, Tag: tag}}:
+	case n.queue <- newMailNotification{event: &payload{
+		Title: r.Title, Body: r.Body, URL: r.URL, Tag: r.Tag, Kind: "event",
+		EventID: r.EventID, Occurrence: r.Occurrence.UTC().Format(time.RFC3339), SourceKey: r.SourceKey,
+	}}:
 		return true
 	default:
 		return false
@@ -177,7 +189,11 @@ type payload struct {
 	// burst of mail from collapsing into a single notification.
 	Tag string `json:"tag,omitempty"`
 	// URL is the in-app path opened on click; defaults to the message.
-	URL string `json:"url,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	EventID    int64  `json:"event_id,omitempty"`
+	Occurrence string `json:"occurrence,omitempty"`
+	SourceKey  string `json:"source_key,omitempty"`
 }
 
 // Delivery settings. A short TTL makes the push service discard a message
@@ -199,19 +215,13 @@ func (n *Notifier) SendNewMail(ctx context.Context, subject, from string, messag
 	if n.agentClients != nil {
 		n.agentClients.EmitNewMail(messageID, from, subject)
 	}
-	n.sendPush(ctx, "mail", mailTTL, payload{
-		Title: "comstac", Body: notificationBody(subject, from),
-		MessageID: messageID, Tag: fmt.Sprintf("mail-%d", messageID),
-	})
+	n.sendPush(ctx, "mail", mailTTL, n.mailPayload(ctx, "mail", subject, from, messageID))
 }
 
 // SendReminder dispatches a "snooze expired" push notification to all
 // subscriptions.
 func (n *Notifier) SendReminder(ctx context.Context, subject, from string, messageID int64) {
-	n.sendPush(ctx, "reminder", reminderTTL, payload{
-		Title: "comstac reminder", Body: notificationBody(subject, from),
-		MessageID: messageID, Tag: fmt.Sprintf("reminder-%d", messageID),
-	})
+	n.sendPush(ctx, "reminder", reminderTTL, n.mailPayload(ctx, "reminder", subject, from, messageID))
 }
 
 // SendTest sends a test notification to every subscription and reports how
@@ -223,11 +233,59 @@ func (n *Notifier) SendTest(ctx context.Context) (accepted, total int) {
 	})
 }
 
-func notificationBody(subject, from string) string {
-	if from != "" {
-		return fmt.Sprintf("%s — %s", from, subject)
+func (n *Notifier) mailPayload(ctx context.Context, kind, subject, from string, messageID int64) payload {
+	if addr, err := mail.ParseAddress(from); err == nil {
+		from = addr.Name
+		if from == "" {
+			from = addr.Address
+		}
 	}
-	return subject
+	subject = notificationText(subject, 200)
+	if subject == "" {
+		subject = "(no subject)"
+	}
+	title := subject
+	if from = notificationText(from, 80); from != "" {
+		title = from + " · " + subject
+	}
+	if kind == "reminder" {
+		title = "Reminder: " + title
+	}
+	p := payload{Title: title, MessageID: messageID, Kind: kind, Tag: fmt.Sprintf("%s-%d", kind, messageID)}
+	if n.db != nil {
+		raw, err := store.GetRawMIMEByMessageID(ctx, n.db, messageID)
+		if err != nil {
+			slog.Warn("push: read message preview", "message_id", messageID, "err", err)
+		} else {
+			p.Body = notificationPreview(store.ExtractBodyText(raw))
+		}
+	}
+	return p
+}
+
+var (
+	notificationLabeledLink = regexp.MustCompile(`(?i)\[([^\]\r\n]+)\]\(https?://[^\s)]+\)`)
+	notificationLinkTarget  = regexp.MustCompile(`(?i)(\[\s*https?://[^\]\r\n]+\]|<\s*https?://[^>\r\n]+>)`)
+)
+
+// Plain-text email alternatives often append bracketed tracking URLs to link
+// labels. Keep the readable label and spend the preview limit on message text.
+// This only changes notifications; the original message retains its links.
+func notificationPreview(text string) string {
+	text = notificationLabeledLink.ReplaceAllString(text, "$1")
+	text = notificationLinkTarget.ReplaceAllString(text, "")
+	return notificationText(text, 300)
+}
+
+// Bound by Unicode characters, keeping whitespace readable and the encrypted
+// push payload small even for long subjects and multibyte message bodies.
+func notificationText(s string, limit int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	runes := []rune(s)
+	if len(runes) > limit {
+		return strings.TrimSpace(string(runes[:limit-1])) + "…"
+	}
+	return s
 }
 
 func (n *Notifier) sendPush(ctx context.Context, kind string, ttl int, p payload) (accepted, total int) {

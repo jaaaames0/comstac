@@ -1,6 +1,6 @@
 APP=comstac
 
-.PHONY: run build test test-api test-smtp test-store fmt install uninstall
+.PHONY: run build test test-api test-smtp test-store test-notifications fmt install uninstall
 
 run:
 	go run ./cmd/comstac
@@ -19,6 +19,9 @@ test-smtp:
 
 test-store:
 	go test ./internal/store -v
+
+test-notifications:
+	node --test internal/ui/testdata/sw.test.cjs
 
 fmt:
 	gofmt -w ./cmd ./internal
