@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"comstac/internal/ingest"
+	"comstac/internal/store"
 )
 
 func TestNotificationQueueIsBounded(t *testing.T) {
@@ -93,5 +94,27 @@ func TestNotificationPreviewKeepsReadableLabels(t *testing.T) {
 		if got := notificationPreview(tc.text); got != tc.want {
 			t.Errorf("preview of %q = %q, want %q", tc.text, got, tc.want)
 		}
+	}
+}
+
+func TestHiddenPaddingPreviewDoesNotChangeMail(t *testing.T) {
+	n := newTestNotifier(t)
+	ctx := context.Background()
+	raw := []byte("Subject: Fixture\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<div style='display:none;max-height:0px;overflow:\n hidden'>" + strings.Repeat("\u034f\u200c&nbsp;", 400) + "</div><p>96 items arrive Thursday.</p>")
+	if err := ingest.NewService(n.db).IngestRaw(ctx, ingest.IngestInput{Source: ingest.SourceSMTP, RawMIME: raw}); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	if err := n.db.QueryRow(`SELECT id FROM messages`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"mail", "reminder"} {
+		if p := n.mailPayload(ctx, kind, "Fixture", "Sender", id); p.Body != "96 items arrive Thursday." {
+			t.Fatalf("%s: %+v", kind, p)
+		}
+	}
+	stored, err := store.GetRawMIMEByMessageID(ctx, n.db, id)
+	if err != nil || string(stored) != string(raw) {
+		t.Fatalf("stored MIME changed: %v", err)
 	}
 }

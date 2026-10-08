@@ -7,6 +7,9 @@ This project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Fixed
+- Notification previews omit explicitly hidden HTML and wordless padding,
+  decode MIME transfer/character encodings, and use readable alternatives before
+  truncating. Original message bodies and meaningful Unicode remain intact.
 - All-day reminder presets use local calendar dates at 9am across DST, including
   the scheduler lookup window and imported event time zones.
 - Compose/reply parse quoted and named recipients correctly, validate complete

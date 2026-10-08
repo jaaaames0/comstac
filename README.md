@@ -464,3 +464,10 @@ credentials or pointing at the production database.
 - SMTP STARTTLS is opportunistic for public MX compatibility. It protects
   transport when negotiated but does not authenticate the human author of a
   message.
+
+Notification snippets use a separate bounded MIME preview reader: explicitly
+hidden HTML, scripts/styles and wordless zero-width padding are omitted before
+the 300-character limit. Transfer and declared character encodings are decoded;
+a readable HTML alternative can replace a padding-only plain-text alternative.
+Preview work stops after 1 MiB of decoded text, 100 MIME parts, eight MIME nesting
+levels or 128 HTML levels. Raw mail and stored/search bodies are unchanged.

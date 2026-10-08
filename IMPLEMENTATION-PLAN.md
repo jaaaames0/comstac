@@ -27,7 +27,15 @@ B5 is implemented with calendar-date preset calculations and matching occurrence
 windows. Regressions cover both Sydney transitions, days crossing each boundary,
 recurrence, queue rejection/restart, imported New York events and the exact
 six-hour grace cutoff. Timed/custom offsets retain elapsed-minute semantics.
-Focused checks and `make verify` pass; N1 is next.
+Focused checks and `make verify` pass.
+
+N1 hidden-content cleanup is implemented with bounded MIME/HTML processing,
+charset and transfer decoding, plain/HTML alternative selection and conservative
+padding cleanup. The supplied hidden div now yields visible prose in both mail
+and resurfaced-mail payloads; raw and stored/search text remain unchanged.
+Focused checks and `make verify` pass. The separate `96` prefix remains
+unreproduced; meaningful numbers are preserved, and a sanitized MIME excerpt
+has been requested. F2 is next.
 
 ## Starting point
 

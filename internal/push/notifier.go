@@ -20,6 +20,7 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
+	"comstac/internal/mailcontent"
 	"comstac/internal/store"
 )
 
@@ -253,11 +254,11 @@ func (n *Notifier) mailPayload(ctx context.Context, kind, subject, from string, 
 	}
 	p := payload{Title: title, MessageID: messageID, Kind: kind, Tag: fmt.Sprintf("%s-%d", kind, messageID)}
 	if n.db != nil {
-		raw, err := store.GetRawMIMEByMessageID(ctx, n.db, messageID)
+		raw, err := store.GetBoundedRawMIMEByMessageID(ctx, n.db, messageID)
 		if err != nil {
 			slog.Warn("push: read message preview", "message_id", messageID, "err", err)
 		} else {
-			p.Body = notificationPreview(store.ExtractBodyText(raw))
+			p.Body = notificationPreview(mailcontent.PreviewText(raw))
 		}
 	}
 	return p
