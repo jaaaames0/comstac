@@ -16,6 +16,13 @@ rejection, lost acceptance and acceptance followed by disconnect. Compose/reply
 tests cover cancelled requests, failed history writes and uncertainty display.
 Focused checks and `make verify` pass; B4 is next.
 
+B4 is implemented: whole-message validation precedes network work, uploaded
+files fail as a unit on size/open/read errors, empty files are retained, and
+canonical address parsing separates MIME names from SMTP mailboxes. Tests cover
+draft retention, zero sends for invalid inputs, MIME/filename/Unicode/BCC round
+trips, exact serialized bounds and base64 line wrapping. Focused checks and
+`make verify` pass; B5 is next.
+
 ## Starting point
 
 The candidate already contains B1 (retry-safe Gmail checkpoints), B2 (ordinary

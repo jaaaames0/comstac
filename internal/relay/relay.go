@@ -8,7 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
+	"net/mail"
+
+	"comstac/internal/mailcontent"
 	"net"
 	"net/textproto"
 	"strconv"
@@ -70,8 +74,19 @@ func (r *Relay) Send(ctx context.Context, msg OutboundMessage) (msgID string, ra
 	if err := ctx.Err(); err != nil {
 		return "", nil, err
 	}
-	msgID = generateMessageID(r.cfg.From)
-	rawMIME = buildRawMIME(r.cfg.From, msg, msgID)
+	msg, rcptTo, err := normalizeRecipients(msg)
+	if err != nil {
+		return "", nil, err
+	}
+	from, err := mail.ParseAddress(r.cfg.From)
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid approved sender: %w", err)
+	}
+	msgID = generateMessageID(from.Address)
+	rawMIME, err = buildRawMIME(r.cfg.From, msg, msgID)
+	if err != nil {
+		return "", nil, err
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
@@ -109,11 +124,7 @@ func (r *Relay) Send(ctx context.Context, msg OutboundMessage) (msgID string, ra
 		return msgID, rawMIME, relayError(ctx, err, false)
 	}
 
-	rcptTo := make([]string, 0, len(msg.To)+len(msg.CC)+len(msg.BCC))
-	rcptTo = append(rcptTo, msg.To...)
-	rcptTo = append(rcptTo, msg.CC...)
-	rcptTo = append(rcptTo, msg.BCC...)
-	if err := c.Mail(r.cfg.From, nil); err != nil {
+	if err := c.Mail(from.Address, nil); err != nil {
 		return msgID, rawMIME, relayError(ctx, err, false)
 	}
 	for _, addr := range rcptTo {
@@ -158,84 +169,116 @@ func sanitizeHeaderValue(v string) string {
 	}, v)
 }
 
-func buildRawMIME(from string, msg OutboundMessage, msgID string) []byte {
-	to := strings.Join(msg.To, ", ")
-	date := time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 +0000")
+// ValidateMessage validates recipients and exact serialized size without
+// allocating the serialized payload or contacting the relay.
+func ValidateMessage(from string, msg OutboundMessage) error {
+	normalized, _, err := normalizeRecipients(msg)
+	if err != nil {
+		return err
+	}
+	sender, err := mail.ParseAddress(from)
+	if err != nil {
+		return fmt.Errorf("invalid approved sender: %w", err)
+	}
+	return writeRawMIME(io.Discard, from, normalized, generateMessageID(sender.Address), mailcontent.MaxMessageBytes)
+}
 
+type mimeLimitWriter struct {
+	dst          io.Writer
+	bytes, limit int64
+	err          error
+}
+
+func (w *mimeLimitWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	if int64(len(p)) > w.limit-w.bytes {
+		w.err = mailcontent.ErrTooLarge
+		return 0, w.err
+	}
+	n, err := w.dst.Write(p)
+	w.bytes += int64(n)
+	w.err = err
+	return n, err
+}
+
+func buildRawMIME(from string, msg OutboundMessage, msgID string) ([]byte, error) {
+	var out bytes.Buffer
+	if err := writeRawMIME(&out, from, msg, msgID, mailcontent.MaxMessageBytes); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func writeRawMIME(dst io.Writer, from string, msg OutboundMessage, msgID string, limit int64) error {
+	out := &mimeLimitWriter{dst: dst, limit: limit}
+	h := func(key, value string) { fmt.Fprintf(out, "%s: %s\r\n", key, sanitizeHeaderValue(value)) }
+	h("From", from)
+	h("To", strings.Join(msg.To, ", "))
+	if len(msg.CC) > 0 {
+		h("Cc", strings.Join(msg.CC, ", "))
+	}
+	h("Subject", mime.QEncoding.Encode("utf-8", msg.Subject))
+	h("Date", time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 +0000"))
+	h("Message-ID", "<"+msgID+">")
+	h("MIME-Version", "1.0")
+	if msg.InReplyTo != "" {
+		h("In-Reply-To", msg.InReplyTo)
+		h("References", msg.References)
+	}
 	if len(msg.Attachments) == 0 {
-		var b strings.Builder
-		h := func(k, v string) { b.WriteString(k + ": " + sanitizeHeaderValue(v) + "\r\n") }
-		h("From", from)
-		h("To", to)
-		if len(msg.CC) > 0 {
-			h("Cc", strings.Join(msg.CC, ", "))
-		}
-		h("Subject", msg.Subject)
-		h("Date", date)
-		h("Message-ID", "<"+msgID+">")
-		h("MIME-Version", "1.0")
 		h("Content-Type", "text/plain; charset=utf-8")
 		h("Content-Transfer-Encoding", "8bit")
-		if msg.InReplyTo != "" {
-			h("In-Reply-To", msg.InReplyTo)
-			h("References", msg.References)
-		}
-		b.WriteString("\r\n")
-		b.WriteString(msg.BodyText)
-		return []byte(b.String())
+		io.WriteString(out, "\r\n")
+		io.WriteString(out, msg.BodyText)
+		return out.err
 	}
-
-	// Build multipart/mixed body first so we have the boundary before writing headers.
-	var bodyBuf bytes.Buffer
-	mw := multipart.NewWriter(&bodyBuf)
-	boundary := mw.Boundary()
-
-	// Text part
-	th := make(textproto.MIMEHeader)
-	th.Set("Content-Type", "text/plain; charset=utf-8")
-	th.Set("Content-Transfer-Encoding", "8bit")
-	if pw, err := mw.CreatePart(th); err == nil {
-		pw.Write([]byte(msg.BodyText)) //nolint:errcheck
+	mw := multipart.NewWriter(out)
+	h("Content-Type", mime.FormatMediaType("multipart/mixed", map[string]string{"boundary": mw.Boundary()}))
+	io.WriteString(out, "\r\n")
+	if out.err != nil {
+		return out.err
 	}
-
-	// Attachment parts — base64 encoded
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Type", "text/plain; charset=utf-8")
+	header.Set("Content-Transfer-Encoding", "8bit")
+	part, err := mw.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	if _, err = io.WriteString(part, msg.BodyText); err != nil {
+		return err
+	}
 	for _, att := range msg.Attachments {
-		ah := make(textproto.MIMEHeader)
-		ct := att.ContentType
-		if ct == "" {
-			ct = "application/octet-stream"
+		contentType := att.ContentType
+		if contentType == "" {
+			contentType = "application/octet-stream"
 		}
-		ah.Set("Content-Type", ct)
-		ah.Set("Content-Disposition", `attachment; filename="`+sanitizeHeaderValue(att.Filename)+`"`)
-		ah.Set("Content-Transfer-Encoding", "base64")
-		if pw, err := mw.CreatePart(ah); err == nil {
-			enc := base64.NewEncoder(base64.StdEncoding, pw)
-			enc.Write(att.Data) //nolint:errcheck
-			enc.Close()
+		media, params, err := mime.ParseMediaType(contentType)
+		if err != nil {
+			return fmt.Errorf("invalid attachment content type")
+		}
+		header = make(textproto.MIMEHeader)
+		header.Set("Content-Type", mime.FormatMediaType(media, params))
+		header.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": sanitizeHeaderValue(att.Filename)}))
+		header.Set("Content-Transfer-Encoding", "base64")
+		part, err = mw.CreatePart(header)
+		if err != nil {
+			return err
+		}
+		enc := base64.NewEncoder(base64.StdEncoding, &mimeLineWriter{dst: part})
+		if _, err = enc.Write(att.Data); err != nil {
+			return err
+		}
+		if err = enc.Close(); err != nil {
+			return err
 		}
 	}
-	mw.Close()
-
-	// Outer message headers
-	var out bytes.Buffer
-	wh := func(k, v string) { out.WriteString(k + ": " + sanitizeHeaderValue(v) + "\r\n") }
-	wh("From", from)
-	wh("To", to)
-	if len(msg.CC) > 0 {
-		wh("Cc", strings.Join(msg.CC, ", "))
+	if err = mw.Close(); err != nil {
+		return err
 	}
-	wh("Subject", msg.Subject)
-	wh("Date", date)
-	wh("Message-ID", "<"+msgID+">")
-	wh("MIME-Version", "1.0")
-	wh("Content-Type", `multipart/mixed; boundary="`+boundary+`"`)
-	if msg.InReplyTo != "" {
-		wh("In-Reply-To", msg.InReplyTo)
-		wh("References", msg.References)
-	}
-	out.WriteString("\r\n")
-	out.Write(bodyBuf.Bytes())
-	return out.Bytes()
+	return out.err
 }
 
 func generateMessageID(fromAddr string) string {
@@ -243,7 +286,37 @@ func generateMessageID(fromAddr string) string {
 	if at := strings.LastIndex(fromAddr, "@"); at >= 0 {
 		domain = fromAddr[at+1:]
 	}
-	return fmt.Sprintf("%d.%x@%s", time.Now().UnixNano(), time.Now().UnixNano()&0xffffff, domain)
+	return fmt.Sprintf("%d.%06x@%s", time.Now().UnixNano(), time.Now().UnixNano()&0xffffff, domain)
+}
+
+// MIME base64 lines are at most 76 characters, even for a large attachment.
+type mimeLineWriter struct {
+	dst    io.Writer
+	column int
+}
+
+func (w *mimeLineWriter) Write(p []byte) (int, error) {
+	consumed := 0
+	for len(p) > 0 {
+		if w.column == 76 {
+			if _, err := io.WriteString(w.dst, "\r\n"); err != nil {
+				return consumed, err
+			}
+			w.column = 0
+		}
+		n := min(76-w.column, len(p))
+		written, err := w.dst.Write(p[:n])
+		consumed += written
+		w.column += written
+		if err != nil {
+			return consumed, err
+		}
+		if written != n {
+			return consumed, io.ErrShortWrite
+		}
+		p = p[n:]
+	}
+	return consumed, nil
 }
 
 // From returns the approved sender address for this relay.

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/mail"
@@ -16,6 +15,7 @@ import (
 
 	"comstac/internal/aiextract"
 	"comstac/internal/imap"
+	"comstac/internal/mailcontent"
 	"comstac/internal/relay"
 	"comstac/internal/store"
 )
@@ -283,17 +283,14 @@ func registerRoutes(mux *http.ServeMux, db *sql.DB, r mailSender, uiCfg *UIConfi
 			http.Error(w, "failed to parse form", http.StatusBadRequest)
 			return
 		}
-		to := parseAddressList(req.FormValue("to"))
-		subject := strings.TrimSpace(req.FormValue("subject"))
-		body := strings.TrimSpace(req.FormValue("body"))
-		cc := parseAddressList(req.FormValue("cc"))
-		bcc := parseAddressList(req.FormValue("bcc"))
-		attachments := extractAttachments(req)
-		if len(to) == 0 {
-			execute(w, "compose", composeData{Subject: subject, Body: body})
+		if req.MultipartForm != nil {
+			defer req.MultipartForm.RemoveAll()
+		}
+		msg, err := outboundForm(req, r.From())
+		if err != nil {
+			renderDraftError(w, req, 0, err)
 			return
 		}
-		msg := relay.OutboundMessage{To: to, CC: cc, BCC: bcc, Subject: subject, BodyText: body, Attachments: attachments}
 		sendErr, historyErr := sendAndRecord(req.Context(), db, r, msg, 0)
 		renderSendResult(w, msg, sendErr, historyErr)
 	})
@@ -380,12 +377,14 @@ func registerRoutes(mux *http.ServeMux, db *sql.DB, r mailSender, uiCfg *UIConfi
 			return
 		}
 		replyToID, _ := strconv.ParseInt(req.FormValue("id"), 10, 64)
-		to := parseAddressList(req.FormValue("to"))
-		subject := strings.TrimSpace(req.FormValue("subject"))
-		body := strings.TrimSpace(req.FormValue("body"))
-		cc := parseAddressList(req.FormValue("cc"))
-		bcc := parseAddressList(req.FormValue("bcc"))
-		attachments := extractAttachments(req)
+		if req.MultipartForm != nil {
+			defer req.MultipartForm.RemoveAll()
+		}
+		msg, err := outboundForm(req, r.From())
+		if err != nil {
+			renderDraftError(w, req, replyToID, err)
+			return
+		}
 
 		inReplyTo := ""
 		references := ""
@@ -397,8 +396,12 @@ func registerRoutes(mux *http.ServeMux, db *sql.DB, r mailSender, uiCfg *UIConfi
 			}
 		}
 
-		msg := relay.OutboundMessage{To: to, CC: cc, BCC: bcc, Subject: subject, BodyText: body,
-			InReplyTo: inReplyTo, References: references, Attachments: attachments}
+		msg.InReplyTo = inReplyTo
+		msg.References = references
+		if err := relay.ValidateMessage(r.From(), msg); err != nil {
+			renderDraftError(w, req, replyToID, err)
+			return
+		}
 		sendErr, historyErr := sendAndRecord(req.Context(), db, r, msg, replyToID)
 		renderSendResult(w, msg, sendErr, historyErr)
 	})
@@ -723,20 +726,23 @@ func sanitizeFilename(name string) string {
 }
 
 // extractAttachments reads uploaded files from a parsed multipart form.
-func extractAttachments(req *http.Request) []relay.Attachment {
+func extractAttachments(req *http.Request) ([]relay.Attachment, error) {
 	if req.MultipartForm == nil {
-		return nil
+		return nil, nil
 	}
 	var attachments []relay.Attachment
 	for _, fh := range req.MultipartForm.File["attachments"] {
+		if fh.Size > mailcontent.MaxMessageBytes {
+			return nil, fmt.Errorf("attachment %q: %w", fh.Filename, mailcontent.ErrTooLarge)
+		}
 		f, err := fh.Open()
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("could not open attachment %q", fh.Filename)
 		}
-		data, err := io.ReadAll(io.LimitReader(f, 25<<20))
+		data, err := mailcontent.ReadBounded(f, mailcontent.MaxMessageBytes)
 		f.Close()
-		if err != nil || len(data) == 0 {
-			continue
+		if err != nil {
+			return nil, fmt.Errorf("could not read attachment %q: %w", fh.Filename, err)
 		}
 		ct := fh.Header.Get("Content-Type")
 		if ct == "" {
@@ -748,7 +754,7 @@ func extractAttachments(req *http.Request) []relay.Attachment {
 			Data:        data,
 		})
 	}
-	return attachments
+	return attachments, nil
 }
 
 // buildReplyAllCC returns a comma-separated CC string for reply-all:
@@ -845,16 +851,7 @@ func parseBool(raw string) (bool, error) {
 }
 
 func parseAddressList(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if a := strings.TrimSpace(p); a != "" {
-			out = append(out, a)
-		}
-	}
+	out, _ := relay.ParseRecipients(raw)
 	return out
 }
 

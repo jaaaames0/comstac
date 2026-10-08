@@ -7,6 +7,10 @@ This project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Fixed
+- Compose/reply parse quoted and named recipients correctly, validate complete
+  uploads and total encoded MIME size before sending, and preserve drafts on
+  validation errors. Empty attachments are retained; names round-trip through
+  MIME encoding, BCC stays private and large base64 parts use bounded lines.
 - Outbound SMTP obeys cancellation and bounded deadlines, and known accepted
   sends are recorded even after HTTP disconnect. History-write failures are
   surfaced without inviting resend; ambiguous DATA outcomes are shown as

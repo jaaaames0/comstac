@@ -298,13 +298,15 @@ type aiSettingsView struct {
 }
 
 type composeData struct {
-	Title   string // "compose" or "forward"; defaults to "compose" in template
-	To      string
-	Subject string
-	Body    string
+	CC, BCC, Error string
+	Title          string // "compose" or "forward"; defaults to "compose" in template
+	To             string
+	Subject        string
+	Body           string
 }
 
 type replyData struct {
+	BCC, Error string
 	ReplyToID  int64
 	To         string
 	CC         string // pre-filled for reply-all
