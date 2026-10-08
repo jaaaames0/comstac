@@ -3,6 +3,12 @@
 Prepared 2026-10-08. Work sequentially through the stages below. Complete and
 verify one stage before beginning the next; keep each stage in its own commit.
 
+Implementation worktree: `/home/james/src/comstac-followups`, branch
+`agent/reliability-followups`. S1 is implemented with real-decoder size/literal
+and cancellation regressions, metadata-only extraction selection, bounded SQL
+reads and oversized-input progress tests. Focused checks and `make verify` pass.
+Remaining stages follow in the order below.
+
 ## Starting point
 
 The candidate already contains B1 (retry-safe Gmail checkpoints), B2 (ordinary

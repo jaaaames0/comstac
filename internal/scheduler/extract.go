@@ -18,19 +18,33 @@ const extractBatch = 40
 // scanForDates turns dates found in unscanned inbox mail into calendar
 // suggestions.
 func (s *Scheduler) scanForDates(ctx context.Context, now time.Time) error {
+	if s.oversizeWarningAt.IsZero() || now.Sub(s.oversizeWarningAt) >= time.Hour {
+		n, err := store.OversizedPendingExtractions(ctx, s.db, extract.Version)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			slog.Warn("oversized mail remains unprocessed for dates", "component", "scheduler", "messages", n)
+		}
+		s.oversizeWarningAt = now
+	}
 	targets, err := store.PendingExtractions(ctx, s.db, extract.Version, extractBatch)
 	if err != nil {
 		return err
 	}
 	created := 0
 	for _, t := range targets {
+		raw, err := store.GetBoundedRawMIMEByMessageID(ctx, s.db, t.ID)
+		if err != nil {
+			return err
+		}
 		in := extract.Input{
 			Subject:  t.Subject,
 			From:     t.FromAddr,
 			Date:     messageDate(t.DateHdr, t.CreatedAt),
-			Text:     store.ExtractBodyText(t.Raw),
-			HTML:     store.ExtractBodyHTML(t.Raw),
-			Calendar: store.ExtractCalendarParts(t.Raw),
+			Text:     store.ExtractBodyText(raw),
+			HTML:     store.ExtractBodyHTML(raw),
+			Calendar: store.ExtractCalendarParts(raw),
 		}
 		var suggestions []store.CalendarEvent
 		for _, c := range extract.Extract(in, now) {

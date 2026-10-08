@@ -20,6 +20,7 @@ type fakeMailbox struct {
 	searchErr, fetchErr error
 	searchCalls         int
 	beforeFetch         func()
+	maxRequested        int
 }
 
 func (m *fakeMailbox) SearchUIDs(from, to imaplib.UID) ([]imaplib.UID, error) {
@@ -34,6 +35,7 @@ func (m *fakeMailbox) SearchUIDs(from, to imaplib.UID) ([]imaplib.UID, error) {
 }
 
 func (m *fakeMailbox) FetchMessages(uids []imaplib.UID) ([]*imapclient.FetchMessageBuffer, error) {
+	m.maxRequested = max(m.maxRequested, len(uids))
 	if m.beforeFetch != nil {
 		m.beforeFetch()
 	}
@@ -288,6 +290,9 @@ func TestSearchOrderingCannotCommitHigherBatchBeforeFailure(t *testing.T) {
 	}
 	if checkpoint(t, f, account) != 151 {
 		t.Fatal("retry did not complete all batches")
+	}
+	if m.maxRequested != 1 {
+		t.Fatalf("buffered %d bodies per request", m.maxRequested)
 	}
 }
 

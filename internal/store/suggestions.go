@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"comstac/internal/mailcontent"
 )
 
 // ExtractionTarget is a message waiting to be scanned for dates.
@@ -16,20 +18,22 @@ type ExtractionTarget struct {
 	DateHdr   string
 	CreatedAt string
 	Raw       []byte
+	RawBytes  int64
 }
 
 // PendingExtractions returns up to limit inbox messages (not trashed, not
 // spam) that have not been scanned by the given extractor version, oldest
-// first.
+// first. Only metadata is loaded; oversized messages remain unprocessed and
+// are excluded so they cannot starve supported messages behind them.
 func PendingExtractions(ctx context.Context, db *sql.DB, version, limit int) ([]ExtractionTarget, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT m.id, COALESCE(m.subject, ''), COALESCE(m.from_addr, ''), COALESCE(m.date_hdr, ''), m.created_at, mr.mime
+		SELECT m.id, COALESCE(m.subject, ''), COALESCE(m.from_addr, ''), COALESCE(m.date_hdr, ''), m.created_at, length(mr.mime)
 		FROM messages m
 		JOIN messages_raw mr ON mr.id = m.raw_id
 		LEFT JOIN message_extractions x ON x.message_id = m.id
-		WHERE m.archived = 0 AND m.spam = 0 AND (x.message_id IS NULL OR x.version < ?)
+		WHERE m.archived = 0 AND m.spam = 0 AND (x.message_id IS NULL OR x.version < ?) AND length(mr.mime) <= ?
 		ORDER BY m.id
-		LIMIT ?`, version, limit)
+		LIMIT ?`, version, mailcontent.MaxMessageBytes, limit)
 	if err != nil {
 		return nil, fmt.Errorf("pending extractions: %w", err)
 	}
@@ -37,12 +41,36 @@ func PendingExtractions(ctx context.Context, db *sql.DB, version, limit int) ([]
 	var out []ExtractionTarget
 	for rows.Next() {
 		var t ExtractionTarget
-		if err := rows.Scan(&t.ID, &t.Subject, &t.FromAddr, &t.DateHdr, &t.CreatedAt, &t.Raw); err != nil {
+		if err := rows.Scan(&t.ID, &t.Subject, &t.FromAddr, &t.DateHdr, &t.CreatedAt, &t.RawBytes); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+func OversizedPendingExtractions(ctx context.Context, db *sql.DB, version int) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT count(*) FROM messages m
+		JOIN messages_raw mr ON mr.id = m.raw_id LEFT JOIN message_extractions x ON x.message_id = m.id
+		WHERE m.archived = 0 AND m.spam = 0 AND (x.message_id IS NULL OR x.version < ?) AND length(mr.mime) > ?`, version, mailcontent.MaxMessageBytes).Scan(&n)
+	return n, err
+}
+
+// GetBoundedRawMIMEByMessageID enforces the limit in SQL before the driver
+// copies the blob into Go memory. The original stored message is untouched.
+func GetBoundedRawMIMEByMessageID(ctx context.Context, db *sql.DB, id int64) ([]byte, error) {
+	var raw []byte
+	var size int64
+	err := db.QueryRowContext(ctx, `SELECT length(mr.mime), CASE WHEN length(mr.mime) <= ? THEN mr.mime ELSE NULL END
+		FROM messages m JOIN messages_raw mr ON mr.id = m.raw_id WHERE m.id = ?`, mailcontent.MaxMessageBytes, id).Scan(&size, &raw)
+	if err != nil {
+		return nil, err
+	}
+	if size > mailcontent.MaxMessageBytes {
+		return nil, mailcontent.ErrTooLarge
+	}
+	return raw, nil
 }
 
 // SuggestionDetails is the JSON stored in a suggestion's details column.

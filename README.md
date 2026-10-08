@@ -370,6 +370,16 @@ reverse proxy without granting Comstac write access or private-key authority.
 
 ## Development
 
+Mail processing supports MIME bodies up to 25 MiB. IMAP checks size metadata,
+requests a bounded body and independently verifies the literal/read size.
+An oversized or incomplete import fails without advancing its checkpoint;
+later UIDs wait until that retryable range is resolved. Extraction selects
+metadata and loads one supported body at a time. Existing larger stored messages
+stay unscanned, remain counted in extraction progress and generate at most one
+aggregate warning per hour; they do not block supported messages.
+Each processing path retains one raw body, with additional bounded reader,
+driver and parsing allocations. This is a buffer bound, not a total RSS limit.
+
 ```bash
 # Run locally (reads env vars from shell)
 source comstac.env && go run ./cmd/comstac

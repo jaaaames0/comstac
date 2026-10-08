@@ -21,12 +21,13 @@ type Notifier interface {
 
 // Scheduler periodically resurfaces due snoozes and sends due event reminders.
 type Scheduler struct {
-	db       *sql.DB
-	interval time.Duration
-	notifier Notifier
-	loc      *time.Location
-	nowFn    func() time.Time
-	ai       SenderAI
+	db                *sql.DB
+	interval          time.Duration
+	notifier          Notifier
+	loc               *time.Location
+	nowFn             func() time.Time
+	ai                SenderAI
+	oversizeWarningAt time.Time
 }
 
 // SenderAI runs AI extraction for mail from automatic sender domains.

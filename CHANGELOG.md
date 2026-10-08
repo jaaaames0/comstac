@@ -7,6 +7,10 @@ This project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Fixed
+- IMAP imports check size metadata and stream one bounded MIME body at a time;
+  date extraction selects metadata and loads individual bounded bodies rather
+  than retaining whole batches. Oversized imports remain retryable, and oversized
+  stored mail remains unscanned without starving supported extraction inputs.
 - Ordinary calendar reminders retry a rejected notification queue within the
   existing six-hour grace window and remain unclaimed while push is disabled.
 - Gmail checkpoints distinguish an initialized empty mailbox from a first
