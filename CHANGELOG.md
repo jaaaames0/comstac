@@ -42,6 +42,10 @@ This project adheres to Semantic Versioning.
   whenever Gmail IMAP is configured rather than only when web OAuth was.
 
 ### Added
+- `make verify` combines Go race tests, vet, module integrity verification,
+  build and service-worker tests. Synthetic migration fixtures cover fresh
+  install, populated upgrades, reopen, FTS/data retention and failure rollback;
+  `RELEASE-CHECKLIST.md` separates these checks from soak and deployment.
 - **Notification previews and actions**: mail notifications include the sender,
   subject and up to 300 characters of plain-text message body, omitting
   bracketed link targets while retaining readable link labels. Supported

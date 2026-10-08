@@ -7,7 +7,7 @@ extraction) is built and evaluated against real mail.
 Step 2 as built: `internal/calendar` (RRULE subset, occurrence expansion,
 roster parser for the phone and laptop layouts), `internal/store/calendar.go`
 with migration 0016, `internal/scheduler` (snoozes and event reminders, 6 h
-catch-up grace, one claim row per sent reminder), and the calendar page
+catch-up grace, one claim row per accepted reminder enqueue), and the calendar page
 (`internal/ui/calendar.go`, `templates/calendar.html`).
 
 Step 3 as built: `internal/extract` (JSON-LD reservations, iCalendar parts,
@@ -22,7 +22,7 @@ from six months of mail before de-duplication; the inbox backfill produced 11
 suggestions from 35 messages.
 
 Step 4 as built: `internal/aiextract` calls NanoGPT's OpenAI-compatible chat
-completions API over plain HTTP (`gemini-2.5-flash-lite` by default) with a
+completions API over HTTPS (`gemini-2.5-flash-lite` by default) with a
 strict JSON schema, prices calls from NanoGPT's published per-model rates,
 and records the provider request id. `extract.CompactText` (links removed,
 stacked table cells unstacked into rows, 30,000-character cap) is what the
@@ -83,13 +83,19 @@ and multi-day timed events spanning the grid.
 
 ## Data model
 
-- `calendar_events`: title, notes, location, `start_at`/`end_at` (UTC),
+- `calendar_events`: title, notes, location, `start_local`/`end_local` (local
+  wall-clock strings: dates for all-day events, `YYYY-MM-DDTHH:MM` for timed),
   `all_day`, `tz` (IANA, default `Australia/Sydney`), `kind` (flight, stay,
   deadline, expiry, event, promo, shift, custom), `source` (manual, email,
   import, roster, ai), `message_id` back-link, `status` (suggested, confirmed,
   dismissed), `details` JSON (flight number, airports, booking reference),
-  optional `rrule`, `dedupe_key`, extractor name and version.
-- `event_reminders`: event, offset before start or absolute time, fired time.
+  optional `rrule` and `dedupe_key`. `message_extractions` separately records
+  which extractor version scanned a message; `message_event_refs` links dedupe
+  keys to every message that found them.
+- `calendar_reminders`: event, offset in minutes and creation time.
+  `calendar_reminder_fires`: event/UTC occurrence/offset identity and claim time.
+  `calendar_notification_snoozes`: persistent ten-minute follow-ups keyed by
+  event, occurrence and source reminder identity.
 - `dedupe_key` (for example `PSFU4K/JQ761/2026-12-22`) lets a "your flight has
   changed" email update the existing event and show the difference instead of
   duplicating it.
@@ -100,7 +106,11 @@ and multi-day timed events spanning the grid.
 ## Reminder scheduler
 
 Generalise the snooze waker into one scheduler for snoozes and event reminders:
-one ticker, one idempotent fired record, one notification path. Default
+one ticker, one idempotent fired record, one notification path. Ordinary claims
+are released when the push queue rejects an enqueue and are not created while
+push is disabled. Retries stay within the six-hour grace window. A claim means
+queue acceptance, not confirmed provider or phone delivery; the queue is in
+memory. Default
 reminders by kind when a suggestion is confirmed: flight 24 h and 3 h before;
 stay check-in the evening before; deadline/expiry 3 days before and the morning
 of. All editable.
@@ -121,7 +131,8 @@ Every extractor writes to the same suggestions table. Suggestions appear as a
    (`in 14 days`, anchored to the message `Date` header), and a nearby keyword
    for the kind (expires, removed, due, check-in, departs). Missing years infer
    the next future date and are cross-checked against any weekday given.
-4. **AI (opt-in)**: Claude Haiku 4.5 to start, behind a provider interface.
+4. **AI (opt-in)**: NanoGPT behind a provider interface, with
+   `gemini-2.5-flash-lite` as the default model.
    - Input: HTML reduced to compact cell-preserving text (no tracking URLs,
      images, styles or footers), size-capped, plus subject and `Date`.
    - Output: schema-constrained JSON events, each with confidence and an

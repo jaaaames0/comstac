@@ -1,6 +1,6 @@
 APP=comstac
 
-.PHONY: run build test test-api test-smtp test-store test-notifications fmt install uninstall
+.PHONY: run build test test-api test-smtp test-store test-notifications verify fmt install uninstall
 
 run:
 	go run ./cmd/comstac
@@ -22,6 +22,14 @@ test-store:
 
 test-notifications:
 	node --test internal/ui/testdata/sw.test.cjs
+
+# Source-only release gate: no application startup, install, or formatting.
+verify:
+	go test -race -count=1 ./...
+	go vet ./...
+	go mod verify
+	go build -trimpath -buildvcs=true -o /dev/null ./cmd/comstac
+	$(MAKE) test-notifications
 
 fmt:
 	gofmt -w ./cmd ./internal

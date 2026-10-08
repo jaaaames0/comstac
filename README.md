@@ -3,6 +3,8 @@
 A self-hosted, single-user mail client in a single Go binary. It receives
 local-domain SMTP mail, imports one Gmail mailbox over IMAP/OAuth2, and serves a
 unified inbox through a terminal-style web UI.
+It also includes a calendar with recurring events, work rosters and confirmed
+date suggestions from email.
 
 ---
 
@@ -16,6 +18,10 @@ unified inbox through a terminal-style web UI.
 - **SPF / DKIM observations and DMARC policy lookup** on inbound mail with per-message badges
 - **Spam auto-flagging** when both SPF and DKIM hard-fail
 - **Web Push notifications** (VAPID) for new mail — tapping a notification opens the specific email directly
+- **Calendar and roster import** — custom/recurring events, pasted or emailed
+  roster previews, and Web Push reminders with ten-minute snooze
+- **Date suggestions from email** — booking/rule extraction plus optional
+  NanoGPT extraction; events require confirmation before joining the calendar
 - **Attachment download** on demand, streamed directly from the database
 - **Snooze, trash/restore, read/unread, and spam-flag** actions stored locally; upstream IMAP write-back remains deferred
 - **Keyboard shortcuts** — `j`/`k` navigation, `r` reply, `e` trash, `u` unread, `c` compose, `Escape` back
@@ -25,7 +31,9 @@ unified inbox through a terminal-style web UI.
 ## Design
 
 - **Single binary** — one `comstac` process runs everything (SMTP receiver, IMAP fetcher, HTTP server, background sync, push notifier)
-- **SQLite** is the sole datastore — raw MIME, normalized messages, auth sessions, sync jobs, push subscriptions all in one file
+- **SQLite** is the sole datastore — raw MIME, normalized messages, auth
+  sessions, sync jobs, push subscriptions, calendar and extraction state in
+  one file
 - **No Docker, no Redis** — nginx as a TLS-terminating reverse proxy is recommended but not required
 - **~100 MB idle RAM** target under typical single-user load
 - **Embedded frontend** — HTML/CSS/JS templates compiled into the binary via `go:embed`; no build step needed for the UI
@@ -35,6 +43,8 @@ unified inbox through a terminal-style web UI.
 ## Requirements
 
 - **Go 1.26+** (the current module minimum is Go 1.26)
+- **Make and Node.js 18+** for `make verify`, including service-worker tests;
+  Node is not needed to run the application
 - A Linux host; outbound sending additionally requires access to an SMTP
   smart-host relay (port 587 by default)
 - **nginx** (recommended) as a TLS-terminating reverse proxy with Let's Encrypt
@@ -367,8 +377,12 @@ source comstac.env && go run ./cmd/comstac
 # Or via make (reads from shell env)
 make run
 
-# Full test suite
+# Go tests
 make test
+
+# Complete source release gate (Go race tests, vet, module verification,
+# build and service-worker tests; requires Node.js)
+make verify
 
 # Focused tests
 make test-api
@@ -380,6 +394,14 @@ make fmt
 ```
 
 The binary embeds all frontend assets (templates, static files) at build time — there is no separate frontend build step.
+
+The migration suite uses synthetic populated databases at schema cutoffs 0005,
+0013, 0017 and 0019, then upgrades/reopens them with the application driver. It
+also checks fresh install, retained mail/search/calendar state and transactional
+rollback on failed migrations. See [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md)
+for the remaining soak, tag and production acceptance steps. Run development
+commands with disposable configuration and state, never by loading production
+credentials or pointing at the production database.
 
 ---
 

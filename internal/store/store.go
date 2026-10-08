@@ -110,6 +110,12 @@ func verifyMaxDatabasePages(ctx context.Context, db *sql.DB, maxPages int64) err
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
+	return runMigrationsFrom(ctx, db, migrationsFS)
+}
+
+// runMigrationsFrom keeps fixtures and failure injection on the same runner as
+// production. Runtime callers always use the embedded migration filesystem.
+func runMigrationsFrom(ctx context.Context, db *sql.DB, source fs.FS) error {
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
@@ -119,7 +125,7 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
-	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	entries, err := fs.ReadDir(source, "migrations")
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
 	}
@@ -142,7 +148,7 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 			continue
 		}
 
-		payload, err := migrationsFS.ReadFile("migrations/" + version)
+		payload, err := fs.ReadFile(source, "migrations/"+version)
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", version, err)
 		}

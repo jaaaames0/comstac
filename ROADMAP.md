@@ -4,8 +4,15 @@
 
 Comstac is a production-used `0.x` single-user mail client. Core mail, browser,
 mobile, backup-integration and security work are complete. The remaining `1.0`
-gates are a soak period, clean-install/upgrade validation, and an explicit
-release/tag decision. Deferred features are not blockers unless promoted below.
+gates are a soak period and an explicit release/tag decision. Clean-install and
+populated-upgrade validation are covered by the source-only `make verify` gate;
+production backup/rollback and device acceptance remain operator checks. See
+[RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md). Deferred features are not blockers
+unless promoted below.
+
+The integrated calendar, recurring reminders, roster preview/import and optional
+AI date suggestions are implemented; manual event zone selection and multi-day
+timed grid spans remain deferred in [CALENDAR-DESIGN.md](CALENDAR-DESIGN.md).
 
 ## Product Timeline
 Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
@@ -171,7 +178,9 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 3. Security review and hardening program: authentication/session/CSRF, browser
    and email rendering, resource/storage bounds, SMTP transport and operational
    recovery. ✓ (2026-09-04)
-4. Upgrade and migration validation from a clean install.
+4. Upgrade and migration validation from a clean install. ✓ (`make verify`;
+   fresh plus populated 0005/0013/0017/0019 schemas, reopen, FTS, retained
+   reminder identity and transactional failure recovery)
 5. Tagged `1.0.0` release and changelog freeze.
 
 The optional token-authenticated agent SSE endpoint remains dormant code. The
