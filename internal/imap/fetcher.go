@@ -3,9 +3,10 @@ package imap
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
+	"sort"
 	"time"
 
 	imaplib "github.com/emersion/go-imap/v2"
@@ -88,16 +89,51 @@ func (f *Fetcher) fetchOnce(ctx context.Context, accountID int64) error {
 	if err != nil {
 		return fmt.Errorf("select %s: %w", f.cfg.Mailbox, err)
 	}
+	return f.fetchMailbox(ctx, accountID, selectData.UIDNext, clientMailbox{c})
+}
 
-	lastUID, err := store.GetIMAPCheckpoint(ctx, f.db, accountID, f.cfg.Mailbox)
+// mailboxReader isolates authenticated IMAP reads from checkpoint policy.
+type mailboxReader interface {
+	SearchUIDs(from, to imaplib.UID) ([]imaplib.UID, error)
+	FetchMessages(uids []imaplib.UID) ([]*imapclient.FetchMessageBuffer, error)
+}
+
+type clientMailbox struct{ client *imapclient.Client }
+
+func (m clientMailbox) SearchUIDs(from, to imaplib.UID) ([]imaplib.UID, error) {
+	var uidRange imaplib.UIDSet
+	uidRange.AddRange(from, to)
+	data, err := m.client.UIDSearch(&imaplib.SearchCriteria{UID: []imaplib.UIDSet{uidRange}}, nil).Wait()
+	if err != nil {
+		return nil, err
+	}
+	return data.AllUIDs(), nil
+}
+
+func (m clientMailbox) FetchMessages(uids []imaplib.UID) ([]*imapclient.FetchMessageBuffer, error) {
+	return m.client.Fetch(imaplib.UIDSetNum(uids...), &imaplib.FetchOptions{
+		UID:         true,
+		BodySection: []*imaplib.FetchItemBodySection{{Peek: true}},
+	}).Collect()
+}
+
+func (f *Fetcher) fetchMailbox(ctx context.Context, accountID int64, uidNext imaplib.UID, mailbox mailboxReader) error {
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if uidNext == 0 {
+		return fmt.Errorf("mailbox has invalid UIDNEXT")
+	}
+	lastUID, initialized, err := store.GetIMAPCheckpoint(ctx, f.db, accountID, f.cfg.Mailbox)
 	if err != nil {
 		return fmt.Errorf("get checkpoint: %w", err)
 	}
 
 	// First ever connection: set checkpoint to UIDNEXT-1 so we only fetch
 	// messages that arrive from this point forward, ignoring history.
-	if lastUID == 0 {
-		startUID := uint32(selectData.UIDNext)
+	if !initialized {
+		startUID := uint32(uidNext)
 		if startUID > 0 {
 			startUID-- // UIDNEXT is the next UID to be assigned; last existing is UIDNEXT-1
 		}
@@ -109,24 +145,28 @@ func (f *Fetcher) fetchOnce(ctx context.Context, accountID int64) error {
 	}
 
 	// Nothing new: UIDNEXT hasn't advanced past our checkpoint.
-	if uint32(selectData.UIDNext) <= lastUID+1 {
+	if uint32(uidNext)-1 <= lastUID {
 		return nil
 	}
 
 	// Search the exact known range: lastUID+1 to UIDNext-1.
 	// Using a precise range avoids wildcard ambiguity.
-	var uidRange imaplib.UIDSet
-	uidRange.AddRange(imaplib.UID(lastUID+1), selectData.UIDNext-1)
-	searchData, err := c.UIDSearch(&imaplib.SearchCriteria{
-		UID: []imaplib.UIDSet{uidRange},
-	}, nil).Wait()
+	uids, err := mailbox.SearchUIDs(imaplib.UID(lastUID+1), uidNext-1)
 	if err != nil {
 		return fmt.Errorf("uid search: %w", err)
 	}
 
-	uids := searchData.AllUIDs()
 	if len(uids) == 0 {
-		return nil
+		// SEARCH completed successfully: the known range contains no messages.
+		return store.SetIMAPCheckpoint(ctx, f.db, accountID, f.cfg.Mailbox, uint32(uidNext)-1)
+	}
+	// Search responses are not required to be ordered. Each committed batch
+	// must precede every UID in the next batch.
+	sort.Slice(uids, func(i, j int) bool { return uids[i] < uids[j] })
+	for _, uid := range uids {
+		if uint32(uid) <= lastUID || uid >= uidNext {
+			return fmt.Errorf("search returned UID %d outside requested range", uid)
+		}
 	}
 
 	slog.Info("imap new messages found", "component", "imap", "count", len(uids), "mailbox", f.cfg.Mailbox)
@@ -140,14 +180,14 @@ func (f *Fetcher) fetchOnce(ctx context.Context, accountID int64) error {
 		}
 		batch := uids[i:end]
 
-		maxUID, err := f.fetchAndIngestBatch(ctx, c, accountID, batch)
+		maxUID, err := f.fetchAndIngestBatch(ctx, mailbox, accountID, batch)
 		if err != nil {
 			return fmt.Errorf("batch %d-%d: %w", i, end, err)
 		}
 
 		if maxUID > 0 {
 			if err := store.SetIMAPCheckpoint(ctx, f.db, accountID, f.cfg.Mailbox, uint32(maxUID)); err != nil {
-				slog.Error("imap checkpoint save", "component", "imap", "err", err)
+				return fmt.Errorf("save checkpoint: %w", err)
 			}
 		}
 
@@ -165,26 +205,37 @@ func (f *Fetcher) fetchOnce(ctx context.Context, accountID int64) error {
 	return nil
 }
 
-func (f *Fetcher) fetchAndIngestBatch(ctx context.Context, c *imapclient.Client, accountID int64, uids []imaplib.UID) (imaplib.UID, error) {
-	fetchSet := imaplib.UIDSetNum(uids...)
-	msgs, err := c.Fetch(fetchSet, &imaplib.FetchOptions{
-		UID: true,
-		BodySection: []*imaplib.FetchItemBodySection{
-			{Peek: true},
-		},
-	}).Collect()
+func (f *Fetcher) fetchAndIngestBatch(ctx context.Context, mailbox mailboxReader, accountID int64, uids []imaplib.UID) (imaplib.UID, error) {
+	msgs, err := mailbox.FetchMessages(uids)
 	if err != nil {
 		return 0, fmt.Errorf("fetch: %w", err)
 	}
 
-	var maxUID imaplib.UID
+	requested := make(map[imaplib.UID]bool, len(uids))
+	var minUID, maxUID imaplib.UID
+	for _, uid := range uids {
+		requested[uid] = true
+		if minUID == 0 || uid < minUID {
+			minUID = uid
+		}
+		if uid > maxUID {
+			maxUID = uid
+		}
+	}
+	seen := make(map[imaplib.UID]bool, len(msgs))
 	for _, msg := range msgs {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if msg == nil || !requested[msg.UID] {
+			return 0, fmt.Errorf("fetch returned unrequested message")
+		}
 		if len(msg.BodySection) == 0 {
-			continue
+			return 0, fmt.Errorf("UID %d: missing MIME body", msg.UID)
 		}
 		raw := msg.BodySection[0].Bytes
 		if len(raw) == 0 {
-			continue
+			return 0, fmt.Errorf("UID %d: empty MIME body", msg.UID)
 		}
 
 		err := f.ingestor.IngestRaw(ctx, ingest.IngestInput{
@@ -194,17 +245,27 @@ func (f *Fetcher) fetchAndIngestBatch(ctx context.Context, c *imapclient.Client,
 			RawMIME:   raw,
 		})
 		if err != nil && !isDuplicateError(err) {
-			slog.Error("imap ingest", "component", "imap", "uid", msg.UID, "err", err)
-			continue
+			return 0, fmt.Errorf("ingest UID %d: %w", msg.UID, err)
 		}
 
-		if msg.UID > maxUID {
-			maxUID = msg.UID
+		seen[msg.UID] = true
+	}
+	if len(seen) != len(requested) {
+		// Messages can be expunged between SEARCH and FETCH. Confirm their
+		// absence before advancing; an omitted but still-present UID is retryable.
+		present, err := mailbox.SearchUIDs(minUID, maxUID)
+		if err != nil {
+			return 0, fmt.Errorf("verify missing UIDs: %w", err)
+		}
+		for _, uid := range present {
+			if requested[uid] && !seen[uid] {
+				return 0, fmt.Errorf("UID %d: message still present but not fetched", uid)
+			}
 		}
 	}
 	return maxUID, nil
 }
 
 func isDuplicateError(err error) bool {
-	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+	return errors.Is(err, ingest.ErrDuplicate)
 }

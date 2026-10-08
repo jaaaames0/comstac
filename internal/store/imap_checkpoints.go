@@ -35,21 +35,21 @@ func EnsureIMAPAccount(ctx context.Context, db *sql.DB, email string) (int64, er
 	return res.LastInsertId()
 }
 
-// GetIMAPCheckpoint returns the last fetched UID for an account+mailbox pair.
-// Returns 0 if no checkpoint exists yet.
-func GetIMAPCheckpoint(ctx context.Context, db *sql.DB, accountID int64, mailbox string) (uint32, error) {
+// GetIMAPCheckpoint returns the last fetched UID and whether the checkpoint
+// exists. A saved zero represents an initialized, initially empty mailbox.
+func GetIMAPCheckpoint(ctx context.Context, db *sql.DB, accountID int64, mailbox string) (uint32, bool, error) {
 	var uid uint32
 	err := db.QueryRowContext(ctx,
 		`SELECT last_uid FROM imap_checkpoints WHERE account_id = ? AND mailbox = ? LIMIT 1`,
 		accountID, mailbox,
 	).Scan(&uid)
 	if err == sql.ErrNoRows {
-		return 0, nil
+		return 0, false, nil
 	}
 	if err != nil {
-		return 0, fmt.Errorf("get imap checkpoint: %w", err)
+		return 0, false, fmt.Errorf("get imap checkpoint: %w", err)
 	}
-	return uid, nil
+	return uid, true, nil
 }
 
 // SetIMAPCheckpoint upserts the last fetched UID for an account+mailbox pair.

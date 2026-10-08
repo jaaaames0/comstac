@@ -7,6 +7,9 @@ This project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Fixed
+- Gmail checkpoints distinguish an initialized empty mailbox from a first
+  connection, and retry failed batches without skipping lower UIDs. Exact raw
+  MIME duplicates are recognized without hiding unrelated persistence failures.
 - Search treats whitespace-separated terms as literal text, including hyphens,
   email addresses, quotes and words such as `OR`, instead of FTS5 query syntax.
 - Empty or failed searches preserve the message-list container so inbox, home

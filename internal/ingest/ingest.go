@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"mime"
@@ -19,6 +20,10 @@ import (
 )
 
 type Source string
+
+// ErrDuplicate means the exact raw MIME is already durably persisted.
+// Other constraint failures must remain retryable ingestion errors.
+var ErrDuplicate = errors.New("raw MIME already persisted")
 
 const (
 	SourceSMTP Source = "smtp"
@@ -155,10 +160,20 @@ func (s *Service) persist(ctx context.Context, in IngestInput, sha, subject, fro
 		INSERT INTO messages_raw (
 			source, account_id, envelope_from, envelope_to, remote_id, mime, mime_sha256
 		) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(mime_sha256) DO NOTHING
 	`, string(in.Source), nullableID(in.AccountID), in.EnvelopeFrom, strings.Join(in.EnvelopeTo, ","), in.RemoteID, in.RawMIME, sha)
 	if err != nil {
 		tx.Rollback()
 		return 0, fmt.Errorf("insert raw: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		tx.Rollback()
+		return 0, fmt.Errorf("raw insert rows: %w", err)
+	}
+	if rows == 0 {
+		tx.Rollback()
+		return 0, ErrDuplicate
 	}
 
 	rawID, err := res.LastInsertId()
