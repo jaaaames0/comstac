@@ -194,11 +194,10 @@ after a reproducer demonstrates its cause and the regression passes.
 
 ## 6. F2 — Address book, first version
 
-Default proposed scope: explicitly saved contacts, with add/edit/delete, search,
+Accepted scope: explicitly saved contacts only, with add/edit/delete, search,
 a “save contact” action from an email and To/CC/BCC autocomplete in compose/reply.
-An optional decision is pending: saved contacts only (recommended), or saved
-contacts plus suggestions from recent correspondence. No implementation depends
-on that decision before this stage.
+James selected saved contacts only on 2026-10-08. Autocomplete searches saved
+contacts; recent correspondence does not supply additional suggestions.
 
 - Store a display name and validated email address per contact in SQLite.
   Define duplicate/update behavior while preserving the address as entered;
@@ -225,7 +224,7 @@ plus interaction checks and the common `make verify` gate.
 
 Defer groups, phone/postal fields, provider sync, bulk import/export and automatic
 harvesting until the basic address book is useful. If recent correspondents are
-chosen, keep them separate from saved contacts and bound the derived query.
+considered later, review them as a separate feature.
 
 ## Final handoff
 
