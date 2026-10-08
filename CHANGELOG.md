@@ -7,6 +7,8 @@ This project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Fixed
+- All-day reminder presets use local calendar dates at 9am across DST, including
+  the scheduler lookup window and imported event time zones.
 - Compose/reply parse quoted and named recipients correctly, validate complete
   uploads and total encoded MIME size before sending, and preserve drafts on
   validation errors. Empty attachments are retained; names round-trip through

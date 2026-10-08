@@ -186,3 +186,9 @@ in that range so updated rosters do not duplicate.
 3. Rule and template extraction, suggestion strip, inbox backfill,
    roster-by-email.
 4. AI extraction with cost measurement; optional screenshot roster import.
+
+All-day reminder presets keep their existing stored offsets (-540, 900, 3780,
+9540), but mean 9am on the event day, previous day, three days before or week
+before in the event’s IANA zone. Both firing and occurrence selection use local
+calendar dates through DST. Other offsets and timed events retain elapsed-minute
+semantics; retry grace remains six elapsed hours.

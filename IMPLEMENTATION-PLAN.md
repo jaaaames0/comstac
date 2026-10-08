@@ -21,7 +21,13 @@ files fail as a unit on size/open/read errors, empty files are retained, and
 canonical address parsing separates MIME names from SMTP mailboxes. Tests cover
 draft retention, zero sends for invalid inputs, MIME/filename/Unicode/BCC round
 trips, exact serialized bounds and base64 line wrapping. Focused checks and
-`make verify` pass; B5 is next.
+`make verify` pass.
+
+B5 is implemented with calendar-date preset calculations and matching occurrence
+windows. Regressions cover both Sydney transitions, days crossing each boundary,
+recurrence, queue rejection/restart, imported New York events and the exact
+six-hour grace cutoff. Timed/custom offsets retain elapsed-minute semantics.
+Focused checks and `make verify` pass; N1 is next.
 
 ## Starting point
 

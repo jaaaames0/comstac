@@ -33,21 +33,22 @@ func (s *Scheduler) sendEventReminders(ctx context.Context, now time.Time) error
 			slog.Warn("skip invalid calendar event", "component", "scheduler", "event_id", ev.ID, "err", err)
 			continue
 		}
-		minOff, maxOff := ev.Reminders[0].OffsetMinutes, ev.Reminders[0].OffsetMinutes
+		from, to := calendar.ReminderWindow(now, reminderGrace, e.Start.Location(), ev.AllDay, ev.Reminders[0].OffsetMinutes)
 		for _, r := range ev.Reminders {
-			minOff = min(minOff, r.OffsetMinutes)
-			maxOff = max(maxOff, r.OffsetMinutes)
+			lower, upper := calendar.ReminderWindow(now, reminderGrace, e.Start.Location(), ev.AllDay, r.OffsetMinutes)
+			if lower.Before(from) {
+				from = lower
+			}
+			if upper.After(to) {
+				to = upper
+			}
 		}
-		// fireAt = start - offset must fall in (now-grace, now], so starts lie
-		// in (now-grace+minOff, now+maxOff].
-		from := now.Add(-reminderGrace + time.Duration(minOff)*time.Minute)
-		to := now.Add(time.Duration(maxOff)*time.Minute + time.Second)
 		for _, occ := range e.Occurrences(from, to) {
 			if occ.Start.Before(from) {
 				continue // overlaps the window but started earlier
 			}
 			for _, r := range ev.Reminders {
-				fireAt := occ.Start.Add(-time.Duration(r.OffsetMinutes) * time.Minute)
+				fireAt := calendar.ReminderTime(occ.Start, ev.AllDay, r.OffsetMinutes)
 				if fireAt.After(now) || !fireAt.After(now.Add(-reminderGrace)) {
 					continue
 				}
