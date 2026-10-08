@@ -7,14 +7,14 @@ Implementation worktree: `/home/james/src/comstac-followups`, branch
 `agent/reliability-followups`. S1 is implemented with real-decoder size/literal
 and cancellation regressions, metadata-only extraction selection, bounded SQL
 reads and oversized-input progress tests. Focused checks and `make verify` pass.
-Remaining stages follow in the order below.
+The completed stages are documented in order below.
 
 B3 is implemented with a context-aware verified-TLS relay and shared bounded
 post-send history recording. Local SMTP tests cover cancellation at dial,
 greeting, TLS, command and DATA boundaries, certificate/host rejection, explicit
 rejection, lost acceptance and acceptance followed by disconnect. Compose/reply
 tests cover cancelled requests, failed history writes and uncertainty display.
-Focused checks and `make verify` pass; B4 is next.
+Focused checks and `make verify` pass.
 
 B4 is implemented: whole-message validation precedes network work, uploaded
 files fail as a unit on size/open/read errors, empty files are retained, and
@@ -35,7 +35,24 @@ padding cleanup. The supplied hidden div now yields visible prose in both mail
 and resurfaced-mail payloads; raw and stored/search text remain unchanged.
 Focused checks and `make verify` pass. The separate `96` prefix remains
 unreproduced; meaningful numbers are preserved, and a sanitized MIME excerpt
-has been requested. F2 is next.
+has been requested.
+
+F2 is implemented with migration 0021, validated saved contacts, private bounded
+search, add/edit/delete and explicit sender saving. Compose/reply autocomplete
+quotes names, replaces only the current recipient, preserves unmatched drafts,
+and supports arrows/Enter/Escape/Tab and mobile taps across HTMX swaps. Browser
+regressions also guard delayed autofocus and touch clicks on underlying controls.
+Store/API tests cover validation, duplicates, persistence, literal searches,
+authentication and CSRF; the migration matrix includes populated 0020 and 0021.
+Focused checks, Node tests, disposable Chromium desktop/mobile checks and
+`make verify` pass. The collaborative preview reported no attached desktop host,
+so browser checks used existing headless Chromium with temporary local libraries.
+No host packages, production configuration or live mail were used.
+
+Ordered implementation commits: S1 `90648f6`, B3 `bbfaa98`, B4 `b28d386`,
+B5 `341007c`, N1 `1432150`; F2 is the final address-book commit on this branch.
+The only unresolved reported symptom is the unexplained notification `96` prefix.
+All work remains a source candidate; main and the running service are unchanged.
 
 ## Starting point
 
@@ -48,7 +65,8 @@ reminder queue retry), and T1 (migration matrix and `make verify`):
 
 They are committed on `agent/t1-release-verification` in
 `/home/james/src/comstac-t1`. Main remains at `a25954b`; these changes are not
-merged or deployed. This planning branch adds documentation only.
+merged or deployed. The original planning branch added documentation only;
+implementation is now on the worktree and branch recorded above.
 
 ## Order and scope
 

@@ -79,6 +79,9 @@ func seedMigrationData(t *testing.T, db *sql.DB, cutoff string) {
 	if cutoff >= "0019" {
 		migrationExec(t, db, `INSERT INTO message_event_refs(message_id, dedupe_key, ai) VALUES (1, 'fixture/work', 0)`)
 	}
+	if cutoff >= "0021" {
+		migrationExec(t, db, `INSERT INTO contacts(id,name,email,address_key) VALUES (1,'Saved fixture','Local@Example.COM','Local@example.com')`)
+	}
 }
 
 func migrationLedger(t *testing.T, db *sql.DB) map[string]string {
@@ -161,6 +164,12 @@ func assertMigrationData(t *testing.T, db *sql.DB, cutoff string) {
 			t.Fatalf("existing reminder reclaimed: %t %v", ok, err)
 		}
 	}
+	if cutoff >= "0021" {
+		c, err := GetContact(ctx, db, 1)
+		if err != nil || c.Name != "Saved fixture" || c.Email != "Local@Example.COM" {
+			t.Fatalf("contact retention: %+v %v", c, err)
+		}
+	}
 	queries := map[string]string{
 		"0017": `SELECT count(*) FROM message_extractions WHERE message_id = 1 AND version = 2 AND found = 1`,
 		"0018": `SELECT count(*) FROM ai_extraction_runs WHERE message_id = 1 AND status = 'ok' AND cost_microusd = 12`,
@@ -178,7 +187,7 @@ func assertMigrationData(t *testing.T, db *sql.DB, cutoff string) {
 }
 
 func TestMigrationFreshInstallAndPopulatedUpgrades(t *testing.T) {
-	for _, cutoff := range []string{"fresh", "0005_outbound.sql", "0013_remote_image_senders.sql", "0017_calendar_suggestions.sql", "0019_message_event_refs.sql"} {
+	for _, cutoff := range []string{"fresh", "0005_outbound.sql", "0013_remote_image_senders.sql", "0017_calendar_suggestions.sql", "0019_message_event_refs.sql", "0020_notification_snoozes.sql", "0021_contacts.sql"} {
 		t.Run(cutoff, func(t *testing.T) {
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "upgrade.db")
@@ -210,7 +219,7 @@ func TestMigrationFreshInstallAndPopulatedUpgrades(t *testing.T) {
 				if err := db.QueryRow(`SELECT count(*) FROM messages`).Scan(&n); err != nil || n != 0 {
 					t.Fatalf("fresh mail = %d %v", n, err)
 				}
-				dataVersion = "0020"
+				dataVersion = "0021"
 				seedMigrationData(t, db, dataVersion)
 			}
 			ledger := migrationLedger(t, db)
@@ -229,6 +238,10 @@ func TestMigrationFreshInstallAndPopulatedUpgrades(t *testing.T) {
 				}
 			}
 			assertMigrationData(t, db, dataVersion)
+			added := Contact{Name: "Post-upgrade fixture", Email: "Added@Example.COM"}
+			if err := SaveContact(ctx, db, &added); err != nil {
+				t.Fatal(err)
+			}
 			// Latest notification schema accepts actions for retained fire claims.
 			if dataVersion >= "0016" {
 				for i := 0; i < 2; i++ {
@@ -253,6 +266,10 @@ func TestMigrationFreshInstallAndPopulatedUpgrades(t *testing.T) {
 				t.Fatal("reopen changed migration ledger")
 			}
 			assertMigrationData(t, reopened, dataVersion)
+			retained, err := GetContact(ctx, reopened, added.ID)
+			if err != nil || *retained != added {
+				t.Fatalf("new contact after upgrade/reopen: %+v %v", retained, err)
+			}
 			// Verify FTS triggers still work on updates after upgrade and reopen.
 			migrationExec(t, reopened, `UPDATE messages SET body_text = 'updatedsearchterm' WHERE id = 1`)
 			items, err := SearchMessages(ctx, reopened, "updatedsearchterm", 10)

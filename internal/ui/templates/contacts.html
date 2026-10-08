@@ -1,0 +1,53 @@
+{{define "contacts"}}
+<div class="form-pane contacts-pane">
+  <div class="form-title">contacts</div>
+  <p class="status-detail">Saved contacts only. Add a contact here or save a sender from a message.</p>
+  {{if .Notice}}<p role="status">{{.Notice}}</p>{{end}}
+  <button class="act-p" hx-get="/ui/contacts/edit" hx-target="#reading-pane" hx-swap="innerHTML">add contact</button>
+  <form hx-get="/ui/contacts" hx-target="#reading-pane" hx-swap="innerHTML" class="contact-search">
+    <label class="form-label" for="contact-search">search contacts</label>
+    <input class="form-input" id="contact-search" name="q" type="search" maxlength="128" value="{{.Query}}" placeholder="name or email"/>
+    <button class="act-s" type="submit">search</button>
+  </form>
+  <div class="contact-list">
+    {{range .Items}}
+    <div class="contact-row">
+      <div class="contact-details"><strong>{{if .Name}}{{.Name}}{{else}}{{.Email}}{{end}}</strong>{{if .Name}}<div>{{.Email}}</div>{{end}}</div>
+      <button class="act-s" hx-get="/ui/contacts/edit?id={{.ID}}" hx-target="#reading-pane" hx-swap="innerHTML" aria-label="Edit {{.Email}}">edit</button>
+    </div>
+    {{else}}<p class="status-detail">No saved contacts match.</p>{{end}}
+  </div>
+  <div class="cal-actions">
+    {{if .Previous}}<button class="act-s" hx-get="{{.Previous}}" hx-target="#reading-pane" hx-swap="innerHTML">previous</button>{{end}}
+    {{if .Next}}<button class="act-s" hx-get="{{.Next}}" hx-target="#reading-pane" hx-swap="innerHTML">next</button>{{end}}
+  </div>
+</div>
+{{end}}
+
+{{define "contact_form"}}
+<div class="form-pane">
+  <div class="form-title">{{if .Contact.ID}}edit contact{{else}}add contact{{end}}</div>
+  {{if .Error}}<p class="cal-error" role="alert">{{.Error}}</p>{{end}}
+  <form hx-post="/ui/contacts/save" hx-target="#reading-pane" hx-swap="innerHTML">
+    <input type="hidden" name="id" value="{{.Contact.ID}}"/>
+    <div class="form-field">
+      <label class="form-label" for="contact-name">name</label>
+      <input class="form-input" id="contact-name" name="name" type="text" maxlength="200" value="{{.Contact.Name}}" autocomplete="name"/>
+    </div>
+    <div class="form-field">
+      <label class="form-label" for="contact-email">email</label>
+      <input class="form-input" id="contact-email" name="email" type="text" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="320" required value="{{.Contact.Email}}" autocomplete="email"/>
+    </div>
+    <div class="cal-actions">
+      <button class="act-p" type="submit">save contact</button>
+      <button class="act-s" type="button" hx-get="/ui/contacts" hx-target="#reading-pane" hx-swap="innerHTML">cancel</button>
+    </div>
+  </form>
+  {{if .Contact.ID}}
+  <form hx-post="/ui/contacts/delete" hx-target="#reading-pane" hx-swap="innerHTML" hx-confirm="Delete this saved contact?" class="contact-delete">
+    <input type="hidden" name="id" value="{{.Contact.ID}}"/>
+    <button class="act-s" type="submit">delete contact</button>
+  </form>
+  {{end}}
+</div>
+{{end}}

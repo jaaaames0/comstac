@@ -162,6 +162,16 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(data)
 	})
+	publicMux.HandleFunc("/static/contacts.js", func(w http.ResponseWriter, r *http.Request) {
+		data, err := ui.StaticFS.ReadFile("static/contacts.js")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = w.Write(data)
+	})
 	publicMux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		data, err := ui.StaticFS.ReadFile("static/icon-192.png")
 		if err != nil {
@@ -336,7 +346,7 @@ func isPublicPath(path string) bool {
 		path == "/sw.js", path == "/manifest.json",
 		path == "/favicon.ico",
 		path == "/static/icon-192.png", path == "/static/icon-512.png",
-		path == "/static/htmx-1.9.12.min.js", path == "/static/app.js",
+		path == "/static/htmx-1.9.12.min.js", path == "/static/app.js", path == "/static/contacts.js",
 		strings.HasPrefix(path, acmeChallengePrefix):
 		return true
 	default:

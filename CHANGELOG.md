@@ -6,7 +6,13 @@ This project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- Saved-contact address book with add/edit/delete/search, explicit sender saves
+  and accessible To/CC/BCC autocomplete in compose/reply. Contacts stay private
+  behind the existing session and CSRF protections.
+
 ### Fixed
+- Delayed compose/reply autofocus respects a field already focused by the user.
 - Notification previews omit explicitly hidden HTML and wordless padding,
   decode MIME transfer/character encodings, and use readable alternatives before
   truncating. Original message bodies and meaningful Unicode remain intact.

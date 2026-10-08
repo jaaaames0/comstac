@@ -5,34 +5,34 @@
   <form hx-post="/ui/reply" hx-target="#reading-pane" hx-swap="innerHTML" hx-encoding="multipart/form-data">
     <input type="hidden" name="id" value="{{.ReplyToID}}"/>
     <div class="form-field">
-      <label class="form-label">to</label>
-      <input class="form-input" name="to" type="text" required value="{{.To}}" autocomplete="off"/>
+      <label class="form-label" for="recipient-to">to</label>
+      <input class="form-input" id="recipient-to" name="to" type="text" data-contact-input autocapitalize="none" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="contacts-recipient-to" autocomplete="off" required value="{{.To}}"/>
     </div>
     <details class="cc-toggle" {{if or .CC .BCC}}open{{end}} style="margin-bottom:12px">
       <summary>+ cc / bcc</summary>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
         <div class="form-field" style="margin:0">
-          <label class="form-label">cc</label>
-          <input class="form-input" name="cc" type="text" value="{{.CC}}" placeholder="addr1@example.com, addr2@example.com"/>
+          <label class="form-label" for="recipient-cc">cc</label>
+          <input class="form-input" id="recipient-cc" name="cc" type="text" data-contact-input autocapitalize="none" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="contacts-recipient-cc" autocomplete="off" value="{{.CC}}" placeholder="addr1@example.com, addr2@example.com"/>
         </div>
         <div class="form-field" style="margin:0">
-          <label class="form-label">bcc</label>
-          <input class="form-input" name="bcc" type="text" value="{{.BCC}}" placeholder="addr1@example.com, addr2@example.com"/>
+          <label class="form-label" for="recipient-bcc">bcc</label>
+          <input class="form-input" id="recipient-bcc" name="bcc" type="text" data-contact-input autocapitalize="none" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="contacts-recipient-bcc" autocomplete="off" value="{{.BCC}}" placeholder="addr1@example.com, addr2@example.com"/>
         </div>
       </div>
     </details>
     <div class="form-field">
-      <label class="form-label">subject</label>
-      <input class="form-input" name="subject" type="text" value="{{.Subject}}"/>
+      <label class="form-label" for="draft-subject">subject</label>
+      <input class="form-input" id="draft-subject" name="subject" type="text" value="{{.Subject}}"/>
     </div>
     <div class="form-field">
-      <label class="form-label">body</label>
-      <textarea class="form-input" name="body" rows="10">{{.QuotedBody}}</textarea>
+      <label class="form-label" for="draft-body">body</label>
+      <textarea class="form-input" id="draft-body" name="body" rows="10">{{.QuotedBody}}</textarea>
     </div>
     <div class="form-field">
-      <label class="form-label">attachments</label>
+      <label class="form-label" for="draft-attachments">attachments</label>
       <p class="status-detail">Total encoded message limit: 25 MiB, including attachments and headers.</p>
-      <input class="form-input form-input--file" name="attachments" type="file" multiple/>
+      <input class="form-input form-input--file" id="draft-attachments" name="attachments" type="file" multiple/>
     </div>
     <button class="act-p" type="submit">send reply</button>
   </form>

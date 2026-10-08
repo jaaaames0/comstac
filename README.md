@@ -14,6 +14,8 @@ date suggestions from email.
 - **Aggregates one Gmail mailbox** over IMAP with OAuth2, polling on a configurable interval
 - **Unified inbox** — SMTP and IMAP messages appear in one stream, filterable by source
 - **Full-text search** across subject, sender, and body text
+- **Saved address book** — add/edit/delete/search contacts, explicitly save a
+  sender from an email, and select recipients in To/CC/BCC
 - **Compose and reply** through a configured SMTP smart-host relay — with reply-all, forward, attachment uploads, and CC/BCC
 - **SPF / DKIM observations and DMARC policy lookup** on inbound mail with per-message badges
 - **Spam auto-flagging** when both SPF and DKIM hard-fail
@@ -471,3 +473,15 @@ the 300-character limit. Transfer and declared character encodings are decoded;
 a readable HTML alternative can replace a padding-only plain-text alternative.
 Preview work stops after 1 MiB of decoded text, 100 MIME parts, eight MIME nesting
 levels or 128 HTML levels. Raw mail and stored/search bodies are unchanged.
+
+The **contacts** navigation button opens the saved address book. An email's
+**save contact** action prefills a form; only pressing **save contact** adds it.
+Compose/reply suggestions search these saved contacts, including quoted names
+with commas. Use arrows and Enter, click/tap, or Escape to keep your typed value.
+Unmatched addresses remain usable. Recent correspondence is not harvested.
+Duplicate checks preserve the mailbox local part and ignore domain capitalization;
+edit an existing entry rather than adding the same address again. Contact search
+accepts up to 128 bytes, autocomplete returns at most ten suggestions and the
+management list has 50 entries per page. Names are limited to 200 bytes and
+emails to 320 bytes. Search follows SQLite's LIKE case behavior (ASCII case
+insensitive; non-ASCII case comparisons remain exact).

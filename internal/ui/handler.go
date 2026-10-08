@@ -66,6 +66,7 @@ type mailSender interface {
 }
 
 func registerRoutes(mux *http.ServeMux, db *sql.DB, r mailSender, uiCfg *UIConfig) {
+	registerContactRoutes(mux, db)
 	registerNotificationActionRoutes(mux, db)
 	registerCalendarRoutes(mux, db)
 	var ai AIExtractor

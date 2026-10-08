@@ -964,6 +964,16 @@
       }
       .cal-tools .act-s, .cal-tools .act-p { padding: 4px 8px; }
     }
+    .contact-search { margin: 18px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+    .contact-search label { width: 100%; }
+    .contact-search input { flex: 1; min-width: 120px; }
+    .contact-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .contact-details { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+    .contact-delete { margin-top: 24px; }
+    .form-field:has([data-contact-input]) { position: relative; }
+    .contact-options { position: absolute; top: 100%; left: 0; right: 0; z-index: 30; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; max-height: 240px; overflow-y: auto; box-shadow: 0 4px 16px #0005; }
+    .contact-options [role=option] { display: block; width: 100%; text-align: left; background: none; color: var(--text); border: 0; border-bottom: 1px solid var(--border); padding: 12px; min-height: 44px; font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+    .contact-options [aria-selected=true], .contact-options [role=option]:hover { background: var(--accent-dim); }
   </style>
 </head>
 <body hx-headers='{"X-CSRF-Token":"{{.CSRFToken}}"}'{{if .VAPIDPublicKey}} data-vapid-key="{{.VAPIDPublicKey}}"{{end}}>
@@ -990,6 +1000,7 @@
       <!-- Standalone views -->
       <button class="f" id="sent-btn">sent</button>
       <button class="f" id="calendar-btn">calendar</button>
+      <button class="f" hx-get="/ui/contacts" hx-target="#reading-pane" hx-swap="innerHTML">contacts</button>
       <span class="sep"></span>
       <button class="f{{if .IMAPAuthFailed}} f--warn{{end}}" hx-get="/ui/accounts" hx-target="#reading-pane" hx-swap="innerHTML">accounts{{if .IMAPAuthFailed}} ⚠{{end}}</button>
     </nav>
@@ -1003,7 +1014,7 @@
         <input class="search-input" name="q" type="search" placeholder="search…" autocomplete="off"/>
       </form>
 
-      <button class="compose-btn"
+      <button class="compose-btn" aria-label="compose"
               hx-get="/ui/compose"
               hx-target="#reading-pane"
               hx-swap="innerHTML">+ <span class="compose-label">compose</span></button>
@@ -1220,9 +1231,15 @@
             var to = this.querySelector('input[name="to"]');
             var ta = this.querySelector('textarea');
             if (to && !to.value) {
-              setTimeout(function() { to.focus(); }, 50);
+              setTimeout(function() {
+                if (to.isConnected && !pane.contains(document.activeElement)) to.focus();
+              }, 50);
             } else if (ta) {
-              setTimeout(function() { ta.focus(); ta.setSelectionRange(0, 0); }, 50);
+              setTimeout(function() {
+                if (ta.isConnected && !pane.contains(document.activeElement)) {
+                  ta.focus(); ta.setSelectionRange(0, 0);
+                }
+              }, 50);
             }
           } else {
             // Sync the list row's unread indicator with the detail's read state
@@ -1580,6 +1597,7 @@
     })();
   </script>
   <script src="/static/app.js"></script>
+  <script src="/static/contacts.js"></script>
 </body>
 </html>
 {{end}}
