@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"comstac/internal/ingest"
+	"comstac/internal/mailcontent"
 	"comstac/internal/store"
 )
 
@@ -116,5 +117,18 @@ func TestHiddenPaddingPreviewDoesNotChangeMail(t *testing.T) {
 	stored, err := store.GetRawMIMEByMessageID(ctx, n.db, id)
 	if err != nil || string(stored) != string(raw) {
 		t.Fatalf("stored MIME changed: %v", err)
+	}
+}
+
+func TestOutlookPixelsPerInchDoesNotBecomeNotificationText(t *testing.T) {
+	// Sanitized structure from the reported Cricket Australia message. The old
+	// regex removes head only through its first closing style tag, then exposes
+	// Outlook's XML from a conditional comment as a spurious leading "96".
+	raw := []byte("Content-Type: text/html; charset=utf-8\r\n\r\n<html><head><style>body{margin:0}</style><!--[if gte mso 9]><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]--></head><body><p>96 tickets available.</p></body></html>")
+	if old := store.ExtractBodyText(raw); old != "9696 tickets available." {
+		t.Fatalf("fixture does not reproduce the old prefix: %q", old)
+	}
+	if got := notificationPreview(mailcontent.PreviewText(raw)); got != "96 tickets available." {
+		t.Fatalf("Outlook metadata leaked or real number disappeared: %q", got)
 	}
 }

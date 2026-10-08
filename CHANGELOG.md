@@ -13,7 +13,8 @@ This project adheres to Semantic Versioning.
 
 ### Fixed
 - Delayed compose/reply autofocus respects a field already focused by the user.
-- Notification previews omit explicitly hidden HTML and wordless padding,
+- Notification previews omit Outlook conditional-comment/XML metadata (the
+  spurious leading `96`), explicitly hidden HTML and wordless padding,
   decode MIME transfer/character encodings, and use readable alternatives before
   truncating. Original message bodies and meaningful Unicode remain intact.
 - All-day reminder presets use local calendar dates at 9am across DST, including

@@ -33,9 +33,11 @@ N1 hidden-content cleanup is implemented with bounded MIME/HTML processing,
 charset and transfer decoding, plain/HTML alternative selection and conservative
 padding cleanup. The supplied hidden div now yields visible prose in both mail
 and resurfaced-mail payloads; raw and stored/search text remain unchanged.
-Focused checks and `make verify` pass. The separate `96` prefix remains
-unreproduced; meaningful numbers are preserved, and a sanitized MIME excerpt
-has been requested.
+Focused checks and `make verify` pass. The later authorized inspection of the
+latest Cricket Australia email reproduced the `96` prefix: Outlook-only
+`<o:PixelsPerInch>96</o:PixelsPerInch>` XML in a head conditional comment leaked
+through the old regular-expression stripping. The new preview parser already
+omits it. A sanitized structural regression preserves meaningful body numbers.
 
 F2 is implemented with migration 0021, validated saved contacts, private bounded
 search, add/edit/delete and explicit sender saving. Compose/reply autocomplete
@@ -51,8 +53,9 @@ No host packages, production configuration or live mail were used.
 
 Ordered implementation commits: S1 `90648f6`, B3 `bbfaa98`, B4 `b28d386`,
 B5 `341007c`, N1 `1432150`; F2 is the final address-book commit on this branch.
-The only unresolved reported symptom is the unexplained notification `96` prefix.
-All work remains a source candidate; main and the running service are unchanged.
+The reported notification `96` prefix is now reproduced and covered.
+The user authorized deployment on 2026-10-08; the deployment change record
+tracks live release, checks and rollback separately.
 
 ## Starting point
 
