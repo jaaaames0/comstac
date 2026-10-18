@@ -7,6 +7,8 @@ This project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- Mobile pull-to-refresh on the message list, search results and Sent; it starts
+  only at the top of the list and leaves horizontal row swipes alone.
 - Saved-contact address book with add/edit/delete/search, explicit sender saves
   and accessible To/CC/BCC autocomplete in compose/reply. Contacts stay private
   behind the existing session and CSRF protections.

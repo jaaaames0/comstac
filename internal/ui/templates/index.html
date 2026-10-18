@@ -268,6 +268,24 @@
     .msg-row:hover .msg-time  { opacity: 0; }
     @media (max-width: 680px) { .row-acts { display: none; } }
 
+    /* ── Pull to refresh (mobile only; height driven by touch JS) ── */
+    .ptr { display: none; }
+    @media (max-width: 680px) {
+      .list-col { overscroll-behavior-y: contain; }
+      .ptr {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 0;
+        overflow: hidden;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        letter-spacing: .04em;
+      }
+      .ptr--ready, .ptr--busy { color: var(--accent); }
+    }
+
     .ra {
       padding: 5px 10px;
       border: none;
@@ -1028,6 +1046,7 @@
 
   <div class="workspace">
     <div class="list-col">
+      <div class="ptr" id="ptr" aria-live="polite"></div>
       <div id="message-list" hx-get="/ui/messages?limit=50&spam=0&archived=0" hx-trigger="load"></div>
     </div>
     <div class="reader-col">
@@ -1143,7 +1162,7 @@
         var url = preserveSearch && searchListActive
           ? '/ui/search?q=' + encodeURIComponent(searchInput.value)
           : '/ui/messages?' + filterParams();
-        htmx.ajax('GET', url, {target: '#message-list', swap: 'outerHTML'}).then(function() {
+        return htmx.ajax('GET', url, {target: '#message-list', swap: 'outerHTML'}).then(function() {
           var row = savedId ? document.getElementById('row-' + savedId) : null;
           if (row) {
             row.classList.add('selected');
@@ -1322,6 +1341,65 @@
         row.style.transform = '';
         row.style.opacity = '';
       });
+
+      // ── Pull to refresh on mobile ────────────────────────────────
+      // Starts only when the list is scrolled to the top and the first
+      // movement is downward; horizontal movement is left to row swipes.
+      var ptrEl = document.getElementById('ptr');
+      var ptrThreshold = 60, ptrMax = 90, ptrBusyHeight = 36;
+      var ptrState = null; // { startX, startY, dist, pulling }
+      var ptrBusy = false;
+      function ptrShow(height, text, cls, animate) {
+        ptrEl.style.transition = animate ? 'height 200ms ease' : 'none';
+        ptrEl.style.height = height + 'px';
+        ptrEl.textContent = text;
+        ptrEl.className = 'ptr' + (cls ? ' ' + cls : '');
+      }
+      function ptrRefresh() {
+        if (activePage === 'sent') {
+          return htmx.ajax('GET', '/ui/sent', {target: '#message-list', swap: 'outerHTML'});
+        }
+        return loadMessages(true);
+      }
+      listCol.addEventListener('touchstart', function(e) {
+        if (ptrBusy || e.touches.length !== 1 || listCol.scrollTop > 0) return;
+        if (!window.matchMedia('(max-width: 680px)').matches) return;
+        if (activePage !== 'messages' && activePage !== 'sent') return;
+        ptrState = { startX: e.touches[0].clientX, startY: e.touches[0].clientY, dist: 0, pulling: false };
+      }, { passive: true });
+      listCol.addEventListener('touchmove', function(e) {
+        if (!ptrState) return;
+        var dx = e.touches[0].clientX - ptrState.startX;
+        var dy = e.touches[0].clientY - ptrState.startY;
+        if (!ptrState.pulling) {
+          if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+          if (dy <= 0 || Math.abs(dx) > Math.abs(dy) || listCol.scrollTop > 0) { ptrState = null; return; }
+          ptrState.pulling = true;
+        }
+        ptrState.dist = Math.max(0, Math.min(dy * 0.5, ptrMax));
+        var ready = ptrState.dist >= ptrThreshold;
+        ptrShow(ptrState.dist, ready ? '↑ release to refresh' : '↓ pull to refresh', ready ? 'ptr--ready' : '', false);
+      }, { passive: true });
+      function ptrEnd() {
+        if (!ptrState) return;
+        var ready = ptrState.pulling && ptrState.dist >= ptrThreshold;
+        ptrState = null;
+        if (!ready) { ptrShow(0, '', '', true); return; }
+        ptrBusy = true;
+        ptrShow(ptrBusyHeight, 'refreshing…', 'ptr--busy', true);
+        var finished = false;
+        function done() {
+          if (finished) return;
+          finished = true;
+          ptrBusy = false;
+          ptrShow(0, '', '', true);
+        }
+        var req = ptrRefresh();
+        if (req && req.then) req.then(done, done);
+        setTimeout(done, 10000); // never leave the indicator stuck
+      }
+      listCol.addEventListener('touchend', ptrEnd);
+      listCol.addEventListener('touchcancel', ptrEnd);
 
       // ── Dropdowns ─────────────────────────────────────────────────
       // Menus use position:fixed to escape overflow:auto parents.
