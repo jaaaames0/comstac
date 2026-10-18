@@ -50,6 +50,7 @@ and the application's modernc SQLite driver, including FTS5:
 | 0019 message-event references | Retained AI usage, message references and reminder identity before notification snoozes |
 | 0020 notification snoozes | Populated pre-contact schema upgrades and stores contacts across reopen |
 | 0021 contacts | Existing saved contacts and newly added contacts survive reopening |
+| (all cases) 0022 sessions | Pre-0022 session rows are retained with a zero maximum age, so raw-token sessions read as expired |
 
 Each case upgrades through the real opening/migration path with a database-size
 limit, checks a complete migration ledger, reopens without reapplying migrations,
