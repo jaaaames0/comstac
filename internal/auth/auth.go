@@ -26,25 +26,46 @@ const (
 	MaximumPasswordBytes = 72
 )
 
+const (
+	DefaultSessionIdleTTL = 24 * time.Hour
+	DefaultSessionMaxAge  = 14 * 24 * time.Hour
+)
+
 type Manager struct {
 	db         *sql.DB
 	cookieName string
-	sessionTTL time.Duration
+	idleTTL    time.Duration
+	maxAge     time.Duration
 	csrfSecret []byte
 }
 
-func NewManager(db *sql.DB, cookieName string, sessionTTL time.Duration, csrfSecret string) *Manager {
+// Session is a valid session after Authenticate has applied idle renewal.
+type Session struct {
+	Expires time.Time
+	// Refreshed reports that the expiry moved and the cookie should be re-issued.
+	Refreshed bool
+}
+
+// NewManager configures sessions that expire after idleTTL without use and
+// never outlive maxAge from login, however often they are used.
+func NewManager(db *sql.DB, cookieName string, idleTTL, maxAge time.Duration, csrfSecret string) *Manager {
 	if cookieName == "" {
 		cookieName = "comstac_session"
 	}
-	if sessionTTL <= 0 {
-		sessionTTL = 24 * time.Hour
+	if idleTTL <= 0 {
+		idleTTL = DefaultSessionIdleTTL
+	}
+	if maxAge <= 0 {
+		maxAge = DefaultSessionMaxAge
+	}
+	if idleTTL > maxAge {
+		idleTTL = maxAge
 	}
 	secret := []byte(csrfSecret)
 	if len(secret) == 0 {
 		secret = []byte("comstac-csrf-default-key")
 	}
-	return &Manager{db: db, cookieName: cookieName, sessionTTL: sessionTTL, csrfSecret: secret}
+	return &Manager{db: db, cookieName: cookieName, idleTTL: idleTTL, maxAge: maxAge, csrfSecret: secret}
 }
 
 // CSRFToken returns a per-session CSRF token derived from the session token via HMAC-SHA256.
@@ -117,9 +138,19 @@ func (m *Manager) Login(ctx context.Context, username, password string) (string,
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("generate token: %w", err)
 	}
-	expires := time.Now().Add(m.sessionTTL)
+	now := time.Now()
+	maxExpires := now.Add(m.maxAge)
+	expires := now.Add(m.idleTTL)
+	if expires.After(maxExpires) {
+		expires = maxExpires
+	}
 
-	if _, err := m.db.ExecContext(ctx, `INSERT INTO sessions(token, user_id, expires_at_unix) VALUES (?, ?, ?)`, token, userID, expires.Unix()); err != nil {
+	// Expired rows are otherwise only removed when their token is presented.
+	if _, err := m.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at_unix <= ? OR max_expires_at_unix <= ?`, now.Unix(), now.Unix()); err != nil {
+		return "", time.Time{}, fmt.Errorf("prune sessions: %w", err)
+	}
+	if _, err := m.db.ExecContext(ctx, `INSERT INTO sessions(token, user_id, expires_at_unix, max_expires_at_unix) VALUES (?, ?, ?, ?)`,
+		hashToken(token), userID, expires.Unix(), maxExpires.Unix()); err != nil {
 		return "", time.Time{}, fmt.Errorf("insert session: %w", err)
 	}
 	return token, expires, nil
@@ -173,27 +204,60 @@ func (m *Manager) Logout(ctx context.Context, token string) error {
 	if m == nil || m.db == nil || token == "" {
 		return nil
 	}
-	_, err := m.db.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, token)
+	_, err := m.db.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, hashToken(token))
 	return err
 }
 
-func (m *Manager) IsAuthenticated(ctx context.Context, token string) (bool, error) {
+// LogoutEverywhere revokes every session belonging to the token's user,
+// including the presented one.
+func (m *Manager) LogoutEverywhere(ctx context.Context, token string) error {
 	if m == nil || m.db == nil || token == "" {
-		return false, nil
+		return nil
 	}
-	var expiresAt int64
-	err := m.db.QueryRowContext(ctx, `SELECT expires_at_unix FROM sessions WHERE token = ?`, token).Scan(&expiresAt)
+	_, err := m.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = (SELECT user_id FROM sessions WHERE token = ?)`, hashToken(token))
+	return err
+}
+
+// Authenticate returns nil when the token is not a live session. A live
+// session's idle expiry slides forward with use, capped at its maximum age;
+// the row is rewritten at most once per refresh step to avoid a write per request.
+func (m *Manager) Authenticate(ctx context.Context, token string) (*Session, error) {
+	if m == nil || m.db == nil || token == "" {
+		return nil, nil
+	}
+	key := hashToken(token)
+	var expiresAt, maxExpiresAt int64
+	err := m.db.QueryRowContext(ctx, `SELECT expires_at_unix, max_expires_at_unix FROM sessions WHERE token = ?`, key).Scan(&expiresAt, &maxExpiresAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
+			return nil, nil
 		}
-		return false, fmt.Errorf("select session: %w", err)
+		return nil, fmt.Errorf("select session: %w", err)
 	}
-	if time.Now().Unix() >= expiresAt {
-		_, _ = m.db.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, token)
-		return false, nil
+	now := time.Now()
+	if now.Unix() >= expiresAt || now.Unix() >= maxExpiresAt {
+		_, _ = m.db.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, key)
+		return nil, nil
 	}
-	return true, nil
+
+	next := now.Add(m.idleTTL).Unix()
+	if next > maxExpiresAt {
+		next = maxExpiresAt
+	}
+	if next-expiresAt < int64(m.refreshStep()/time.Second) {
+		return &Session{Expires: time.Unix(expiresAt, 0)}, nil
+	}
+	if _, err := m.db.ExecContext(ctx, `UPDATE sessions SET expires_at_unix = ? WHERE token = ? AND expires_at_unix < ?`, next, key, next); err != nil {
+		return nil, fmt.Errorf("refresh session: %w", err)
+	}
+	return &Session{Expires: time.Unix(next, 0), Refreshed: true}, nil
+}
+
+func (m *Manager) refreshStep() time.Duration {
+	if step := m.idleTTL / 4; step < time.Hour {
+		return step
+	}
+	return time.Hour
 }
 
 func (m *Manager) ReadToken(r *http.Request) string {
@@ -236,6 +300,13 @@ func (m *Manager) ClearSessionCookie(w http.ResponseWriter) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})
+}
+
+// hashToken is the stored form of a session token, so a copy of the database
+// does not contain usable cookies.
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func randomToken(size int) (string, error) {

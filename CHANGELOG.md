@@ -46,6 +46,10 @@ This project adheres to Semantic Versioning.
   and other navigation cannot replace the entire page with a message list.
 
 ### Changed
+- Sessions slide: `COMSTAC_SESSION_TTL_HOURS` (default 24) is now an idle
+  timeout renewed by use, bounded by the new `COMSTAC_SESSION_MAX_AGE_HOURS`
+  (default 336, 14 days) from login. Startup rejects an idle timeout above the
+  maximum age.
 - **Load images remembers the sender**: the per-message `load images` action
   now also adds the exact `From` mailbox to the automatic remote-image list
   (manageable under accounts). An unparseable `From` loads images once without
@@ -101,6 +105,10 @@ This project adheres to Semantic Versioning.
   labels or message/user data.
 
 ### Security
+- Session tokens are stored as SHA-256 digests, so a database copy holds no
+  usable cookies. Existing sessions end once on upgrade (sign in again).
+- "sign out everywhere" on the accounts page revokes all of the user's sessions;
+  login also prunes expired session rows.
 - Inbound SMTP now advertises opportunistic STARTTLS using a required dedicated
   certificate/key pair. Startup and `check-config` fail closed on unreadable,
   invalid, expired, not-yet-valid or hostname-mismatched material; TLS 1.2 is

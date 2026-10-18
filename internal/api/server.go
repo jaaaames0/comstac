@@ -191,6 +191,7 @@ func (s *Server) Handler() http.Handler {
 	ui.RegisterRoutes(protectedMux, s.db, s.relay, s.uiCfg)
 	protectedMux.HandleFunc("/metrics", s.handleMetrics)
 	protectedMux.HandleFunc("/logout", s.handleLogout)
+	protectedMux.HandleFunc("/logout/all", s.handleLogoutEverywhere)
 	protectedMux.HandleFunc("/api/logout", s.handleAPILogout)
 	protectedMux.HandleFunc("/api/messages", s.handleListMessages)
 	protectedMux.HandleFunc("/api/messages/", s.handleMessageRoute)
@@ -225,15 +226,18 @@ func (s *Server) Handler() http.Handler {
 			handleUnauthorized(w, r)
 			return
 		}
-		authed, err := s.auth.IsAuthenticated(r.Context(), token)
+		session, err := s.auth.Authenticate(r.Context(), token)
 		if err != nil {
 			slog.Error("auth check", "component", "api", "err", err)
 			writeJSONError(w, http.StatusInternalServerError, "auth check failed")
 			return
 		}
-		if !authed {
+		if session == nil {
 			handleUnauthorized(w, r)
 			return
+		}
+		if session.Refreshed {
+			s.auth.SetSessionCookie(w, token, session.Expires)
 		}
 
 		// Inject CSRF token into context for the index page renderer.
@@ -518,6 +522,25 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	token := s.auth.ReadToken(r)
 	_ = s.auth.Logout(r.Context(), token)
 	s.auth.ClearSessionCookie(w)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func (s *Server) handleLogoutEverywhere(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := s.auth.LogoutEverywhere(r.Context(), s.auth.ReadToken(r)); err != nil {
+		slog.Error("revoke all sessions", "component", "auth", "err", err)
+		http.Error(w, "could not sign out other sessions", http.StatusInternalServerError)
+		return
+	}
+	s.auth.ClearSessionCookie(w)
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", "/login")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 

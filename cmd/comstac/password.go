@@ -62,7 +62,7 @@ func runRotatePassword(args []string) error {
 	}
 	defer db.Close()
 
-	mgr := auth.NewManager(db, "", 0, "")
+	mgr := auth.NewManager(db, "", 0, 0, "")
 	if err := mgr.RotatePassword(ctx, *username, first); err != nil {
 		if errors.Is(err, auth.ErrUserNotFound) {
 			return fmt.Errorf("user not found")

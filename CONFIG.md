@@ -47,7 +47,12 @@ configured directory root-managed and read-only to the service.
 ## Auth
 - `COMSTAC_ADMIN_USERNAME` (required): bootstrap admin username.
 - `COMSTAC_ADMIN_PASSWORD` (required): bootstrap admin password, at least 12 characters. The example default is rejected.
-- `COMSTAC_SESSION_TTL_HOURS` (default `24`): session lifetime in hours.
+- `COMSTAC_SESSION_TTL_HOURS` (default `24`): idle timeout in hours. Each
+  authenticated request slides the session's expiry to this long from now
+  (rewritten at most hourly), so daily use keeps you signed in.
+- `COMSTAC_SESSION_MAX_AGE_HOURS` (default `336`, 14 days): absolute limit from
+  login that use never extends. Both values must be between one hour and 30
+  days, and the idle timeout must not exceed the maximum age.
 - `COMSTAC_CSRF_SECRET` (required): independent HMAC key for CSRF token generation, at least 32 characters.
 
 To rotate an existing password, run the deployed binary as the database owner
@@ -61,6 +66,10 @@ The new password is read twice without echo and is never accepted in an
 argument or environment variable. A successful update atomically revokes every
 session for that user. The bootstrap environment password does not overwrite an
 existing user's rotated database credential.
+
+Session tokens are stored only as SHA-256 digests. "sign out everywhere" on the
+accounts page (`POST /logout/all`) revokes every session for the signed-in user
+without changing the password.
 
 ## Outbound SMTP Relay
 - `COMSTAC_RELAY_HOST` (default empty): Smart-host SMTP server hostname. Outbound sending is disabled if not set.
@@ -165,6 +174,7 @@ export COMSTAC_STORAGE_MAX_BYTES="10737418240"
 export COMSTAC_STORAGE_MIN_FREE_BYTES="53687091200"
 export COMSTAC_STORAGE_WARN_FREE_BYTES="80530636800"
 export COMSTAC_SESSION_TTL_HOURS="24"
+export COMSTAC_SESSION_MAX_AGE_HOURS="336"
 export COMSTAC_LOCAL_DOMAINS="example.com"
 export COMSTAC_LOCAL_RECIPIENTS="local@example.com"
 ```

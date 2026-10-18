@@ -255,7 +255,7 @@ func postRemoteImagePreference(t *testing.T, client *http.Client, baseURL, actio
 func setCSRFHeader(client *http.Client, req *http.Request) {
 	for _, cookie := range client.Jar.Cookies(req.URL) {
 		if cookie.Name == "comstac_session" {
-			mgr := authpkg.NewManager(nil, "", time.Hour, "")
+			mgr := authpkg.NewManager(nil, "", time.Hour, 0, "")
 			req.Header.Set("X-CSRF-Token", mgr.CSRFToken(cookie.Value))
 			return
 		}

@@ -286,7 +286,8 @@ unsafe.
 |---|---|---|
 | `COMSTAC_ADMIN_USERNAME` | Required | Bootstrap admin username |
 | `COMSTAC_ADMIN_PASSWORD` | Required | Bootstrap admin password, at least 12 characters; the example default is rejected |
-| `COMSTAC_SESSION_TTL_HOURS` | `24` | Session lifetime |
+| `COMSTAC_SESSION_TTL_HOURS` | `24` | Idle timeout; renewed by use |
+| `COMSTAC_SESSION_MAX_AGE_HOURS` | `336` | Absolute session limit from login (14 days) |
 | `COMSTAC_CSRF_SECRET` | Required | Independent HMAC key of at least 32 characters (`openssl rand -hex 32`) |
 
 Rotate an existing user's password from an interactive terminal with the same

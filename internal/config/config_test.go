@@ -20,6 +20,7 @@ func validConfig() Config {
 		AdminUsername:        "operator",
 		AdminPassword:        "a-long-test-password",
 		SessionTTL:           24 * time.Hour,
+		SessionMaxAge:        14 * 24 * time.Hour,
 		CSRFSecret:           "0123456789abcdef0123456789abcdef",
 		StorageMaxBytes:      10 << 30,
 		StorageMinFreeBytes:  50 << 30,
@@ -41,6 +42,31 @@ func TestValidateRejectsSessionTTLBelowOneHour(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), "between one hour and 30 days") {
 		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestValidateRejectsIdleTimeoutBeyondMaximumAge(t *testing.T) {
+	cfg := validConfig()
+	cfg.SessionTTL = 15 * 24 * time.Hour
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "must not exceed COMSTAC_SESSION_MAX_AGE_HOURS") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	cfg.SessionMaxAge = 31 * 24 * time.Hour
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "COMSTAC_SESSION_MAX_AGE_HOURS must be between") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestFromEnvDefaultsToDailyIdleAndFortnightMaximum(t *testing.T) {
+	t.Setenv("COMSTAC_SESSION_TTL_HOURS", "")
+	t.Setenv("COMSTAC_SESSION_MAX_AGE_HOURS", "")
+	cfg := FromEnv()
+	if cfg.SessionTTL != 24*time.Hour || cfg.SessionMaxAge != 14*24*time.Hour {
+		t.Fatalf("session defaults = %v idle, %v max", cfg.SessionTTL, cfg.SessionMaxAge)
 	}
 }
 

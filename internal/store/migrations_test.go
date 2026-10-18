@@ -126,7 +126,8 @@ func assertMigrationData(t *testing.T, db *sql.DB, cutoff string) {
 	}
 	for _, query := range []string{
 		`SELECT count(*) FROM users WHERE id = 1 AND username = 'synthetic-user' AND password_hash = 'synthetic-non-credential'`,
-		`SELECT count(*) FROM sessions WHERE token = 'synthetic-session' AND user_id = 1 AND expires_at_unix = 2000000000`,
+		// Pre-0022 rows survive but carry a zero maximum age, so they read as expired.
+		`SELECT count(*) FROM sessions WHERE token = 'synthetic-session' AND user_id = 1 AND expires_at_unix = 2000000000 AND max_expires_at_unix = 0`,
 		`SELECT count(*) FROM threads WHERE id = 1 AND subject_norm = 'upgrade follow-up'`,
 		`SELECT count(*) FROM accounts WHERE id = 1 AND kind = 'imap' AND email_address = 'fixture@example.test'`,
 		`SELECT count(*) FROM outbound_messages WHERE id = 1 AND subject = 'Fixture reply' AND in_reply_to = 1 AND status = 'sent'`,

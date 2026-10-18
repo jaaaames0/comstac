@@ -147,7 +147,7 @@ func openLoginLimiterTestDB(t *testing.T) *sql.DB {
 
 func bootstrapLoginLimiterAuth(t *testing.T, db *sql.DB) *authpkg.Manager {
 	t.Helper()
-	mgr := authpkg.NewManager(db, "", time.Hour, "test-csrf-secret")
+	mgr := authpkg.NewManager(db, "", time.Hour, 0, "test-csrf-secret")
 	if err := mgr.BootstrapUser(context.Background(), "admin", "password123"); err != nil {
 		t.Fatalf("bootstrap user: %v", err)
 	}

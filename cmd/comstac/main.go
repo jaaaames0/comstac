@@ -128,7 +128,7 @@ func main() {
 		csrfSecret = hex.EncodeToString(h[:])
 	}
 
-	authMgr := auth.NewManager(db, "", cfg.SessionTTL, csrfSecret)
+	authMgr := auth.NewManager(db, "", cfg.SessionTTL, cfg.SessionMaxAge, csrfSecret)
 	if err := authMgr.BootstrapUser(ctx, cfg.AdminUsername, cfg.AdminPassword); err != nil {
 		slog.Error("bootstrap auth user", "err", err)
 		os.Exit(1)

@@ -26,7 +26,8 @@ type Config struct {
 	LocalRecipients      []string
 	AdminUsername        string
 	AdminPassword        string
-	SessionTTL           time.Duration
+	SessionTTL           time.Duration // idle timeout; renewed by use
+	SessionMaxAge        time.Duration // absolute limit from login
 	CSRFSecret           string
 	StorageMaxBytes      int64
 	StorageMinFreeBytes  int64
@@ -112,6 +113,13 @@ func FromEnv() Config {
 		}
 	}
 
+	maxAgeHours := int64(14 * 24)
+	if raw := envOr("COMSTAC_SESSION_MAX_AGE_HOURS", ""); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 {
+			maxAgeHours = parsed
+		}
+	}
+
 	relayPort := 587
 	if raw := envOr("COMSTAC_RELAY_PORT", ""); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
@@ -139,6 +147,7 @@ func FromEnv() Config {
 		AdminUsername:        envOr("COMSTAC_ADMIN_USERNAME", "admin"),
 		AdminPassword:        envOr("COMSTAC_ADMIN_PASSWORD", "changeme123"),
 		SessionTTL:           time.Duration(ttlHours) * time.Hour,
+		SessionMaxAge:        time.Duration(maxAgeHours) * time.Hour,
 		CSRFSecret:           envOr("COMSTAC_CSRF_SECRET", ""),
 		StorageMaxBytes:      parsePositiveInt64(envOr("COMSTAC_STORAGE_MAX_BYTES", "")),
 		StorageMinFreeBytes:  parsePositiveInt64(envOr("COMSTAC_STORAGE_MIN_FREE_BYTES", "")),
@@ -226,6 +235,11 @@ func (c Config) Validate() error {
 	}
 	if c.SessionTTL < time.Hour || c.SessionTTL > 30*24*time.Hour {
 		problems = append(problems, "COMSTAC_SESSION_TTL_HOURS must be between one hour and 30 days")
+	}
+	if c.SessionMaxAge < time.Hour || c.SessionMaxAge > 30*24*time.Hour {
+		problems = append(problems, "COMSTAC_SESSION_MAX_AGE_HOURS must be between one hour and 30 days")
+	} else if c.SessionTTL > c.SessionMaxAge {
+		problems = append(problems, "COMSTAC_SESSION_TTL_HOURS must not exceed COMSTAC_SESSION_MAX_AGE_HOURS")
 	}
 	if c.StorageMaxBytes <= 0 {
 		problems = append(problems, "COMSTAC_STORAGE_MAX_BYTES must be a positive integer")

@@ -343,7 +343,7 @@ func openTestDB(t *testing.T) *sql.DB {
 
 func bootstrapAuth(t *testing.T, db *sql.DB) *authpkg.Manager {
 	t.Helper()
-	mgr := authpkg.NewManager(db, "", time.Hour, "")
+	mgr := authpkg.NewManager(db, "", time.Hour, 0, "")
 	if err := mgr.BootstrapUser(context.Background(), "admin", "password123"); err != nil {
 		t.Fatalf("bootstrap auth: %v", err)
 	}
@@ -487,7 +487,7 @@ func postJSONExpect(t *testing.T, client *http.Client, url string, body string, 
 	req.Header.Set("Content-Type", "application/json")
 	for _, cookie := range client.Jar.Cookies(req.URL) {
 		if cookie.Name == "comstac_session" {
-			mgr := authpkg.NewManager(nil, "", time.Hour, "")
+			mgr := authpkg.NewManager(nil, "", time.Hour, 0, "")
 			req.Header.Set("X-CSRF-Token", mgr.CSRFToken(cookie.Value))
 			break
 		}

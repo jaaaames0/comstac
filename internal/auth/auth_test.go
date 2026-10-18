@@ -8,7 +8,7 @@ import (
 )
 
 func TestSessionCookieAttributesMatchWhenSetAndCleared(t *testing.T) {
-	mgr := NewManager(nil, "", time.Hour, "test-secret")
+	mgr := NewManager(nil, "", time.Hour, 0, "test-secret")
 
 	setRecorder := httptest.NewRecorder()
 	mgr.SetSessionCookie(setRecorder, "token", time.Now().Add(time.Hour))

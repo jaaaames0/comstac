@@ -90,6 +90,15 @@
   </div>
   {{end}}
   {{with .AI}}{{template "ai_section" .}}{{end}}
+
+  <div style="margin-top:20px;padding:12px 14px;background:color-mix(in srgb,var(--surface) 60%,transparent);border:1px solid var(--border);border-radius:4px">
+    <div style="font-weight:600;font-size:12px;margin-bottom:6px">sessions</div>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:10px">
+      Signing in stays valid while you keep using it, up to a fixed maximum. Lost a device? Sign out every browser and phone, including this one.
+    </p>
+    <button class="act-d" type="button" hx-post="/logout/all" hx-swap="none"
+            hx-confirm="Sign out of comstac on every device, including this one?">sign out everywhere</button>
+  </div>
 </div>
 {{end}}
 

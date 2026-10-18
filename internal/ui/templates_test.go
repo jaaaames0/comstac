@@ -114,7 +114,7 @@ func TestAccountsRemoteImagePreferenceEscapesAddresses(t *testing.T) {
 	if strings.Contains(html, `<img src=x`) || !strings.Contains(html, "&lt;img") {
 		t.Fatalf("remote-image address was not escaped: %s", html)
 	}
-	for _, want := range []string{"privacy preference", "From", "aligned DMARC", "remote_image_add", "remote_image_remove"} {
+	for _, want := range []string{"privacy preference", "From", "aligned DMARC", "remote_image_add", "remote_image_remove", `hx-post="/logout/all"`} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("accounts preference UI missing %q", want)
 		}

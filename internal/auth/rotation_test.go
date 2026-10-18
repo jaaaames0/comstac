@@ -18,7 +18,7 @@ func TestRotatePasswordReplacesHashAndRevokesAllSessions(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	mgr := NewManager(db, "", time.Hour, "test-csrf-secret")
+	mgr := NewManager(db, "", time.Hour, 0, "test-csrf-secret")
 	if err := mgr.BootstrapUser(ctx, "admin", "initial-password"); err != nil {
 		t.Fatal(err)
 	}
@@ -42,11 +42,11 @@ func TestRotatePasswordReplacesHashAndRevokesAllSessions(t *testing.T) {
 		t.Fatalf("new password login: %v", err)
 	}
 	for _, token := range []string{first, second} {
-		ok, err := mgr.IsAuthenticated(ctx, token)
+		session, err := mgr.Authenticate(ctx, token)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ok {
+		if session != nil {
 			t.Fatal("pre-rotation session remained valid")
 		}
 	}
@@ -60,7 +60,7 @@ func TestRotatePasswordFailurePreservesExistingSession(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	mgr := NewManager(db, "", time.Hour, "test-csrf-secret")
+	mgr := NewManager(db, "", time.Hour, 0, "test-csrf-secret")
 	if err := mgr.BootstrapUser(ctx, "admin", "initial-password"); err != nil {
 		t.Fatal(err)
 	}
@@ -75,11 +75,11 @@ func TestRotatePasswordFailurePreservesExistingSession(t *testing.T) {
 	if err := mgr.RotatePassword(ctx, "admin", []byte("too-short")); err == nil {
 		t.Fatal("short password was accepted")
 	}
-	ok, err := mgr.IsAuthenticated(ctx, token)
+	session, err := mgr.Authenticate(ctx, token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok {
+	if session == nil {
 		t.Fatal("failed rotation revoked the existing session")
 	}
 }
