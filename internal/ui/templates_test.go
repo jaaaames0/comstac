@@ -138,3 +138,24 @@ func TestIndexUsesOnlyVendoredHTMXAndNonceAuthorizedInlineScript(t *testing.T) {
 		t.Fatalf("external application script missing")
 	}
 }
+
+// The row itself opens the message on click, so the trash/restore button must
+// consume its click; otherwise both requests race into the reading pane and a
+// just-trashed message can reappear there.
+func TestRowActionButtonsDoNotAlsoOpenTheMessage(t *testing.T) {
+	items := []store.MessageListItem{
+		{ID: 7, Subject: "read", Read: true},
+		{ID: 8, Subject: "trashed", Archived: true},
+	}
+	for _, tmpl := range []string{"message_list", "message_list_more"} {
+		var rendered bytes.Buffer
+		execute(&rendered, tmpl, messageListData{Items: items})
+		html := rendered.String()
+		if got := strings.Count(html, `hx-get="/ui/message?id=`); got != len(items) {
+			t.Fatalf("%s: rendered %d row openers, want %d", tmpl, got, len(items))
+		}
+		if got := strings.Count(html, `hx-trigger="click consume"`); got != len(items) {
+			t.Fatalf("%s: %d row action buttons consume their click, want %d", tmpl, got, len(items))
+		}
+	}
+}

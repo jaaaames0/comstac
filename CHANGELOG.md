@@ -12,6 +12,8 @@ This project adheres to Semantic Versioning.
   behind the existing session and CSRF protections.
 
 ### Fixed
+- Trashing or restoring from a list row no longer also opens that message, so a
+  just-trashed message cannot reappear in the reading pane.
 - Delayed compose/reply autofocus respects a field already focused by the user.
 - Notification previews omit Outlook conditional-comment/XML metadata (the
   spurious leading `96`), explicitly hidden HTML and wordless padding,
