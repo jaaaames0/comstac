@@ -79,7 +79,8 @@ matrix does not claim every historical release binary can read the new schema.
 ## Deploying
 
 Most releases are fast-lane deploys (`/home/james/AGENTS.md`, handbook §9.1).
-Commit, then:
+Commit, then (`deploy/deploy.sh` is `fastdeploy comstac`, from
+`/home/james/src/fastdeploy`):
 
 ```bash
 deploy/deploy.sh            # make verify, build, check-config, switch, restart
