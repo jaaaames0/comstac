@@ -1,9 +1,8 @@
 # Release checklist
 
-Run the source gate on the exact candidate commit before release review.
-Passing it provides automated source and synthetic migration evidence;
-daily-driver soak, real-device acceptance, tagging and deployment need their
-own operator decision.
+Run the source gate on the exact candidate commit. `deploy/deploy.sh` runs it
+automatically (see Deploying). It provides automated source and synthetic
+migration evidence; real-device checks happen on the deployed release.
 
 ## Source gate
 
@@ -66,37 +65,53 @@ and ledger entry, preserve earlier committed migrations and allow a corrected
 retry. All databases and payloads are synthetic temporary test files. This
 matrix does not claim every historical release binary can read the new schema.
 
-## Candidate handoff
+## Candidate review
 
 - Record the candidate commit, exact command outcomes and any known limitations.
 - Review changes to persistence, importer checkpoints, notification identity
   and browser/auth boundaries; keep user data and credentials out of fixtures.
 - Record an advisory check separately if performed; do not equate `go mod
   verify` with a security audit.
-- Leave daily-driver soak open until the operator accepts normal inbound,
-  outbound, search, calendar and notification behavior on the candidate.
-- Choose the version/tag and freeze the changelog only after release acceptance.
+- For a full-procedure release, leave daily-driver soak open until the operator
+  accepts normal inbound, outbound, search, calendar and notification behavior.
+  A fast-lane release is accepted by using it; roll back if it misbehaves.
 
-## Separate production transaction
+## Deploying
 
-Before deployment, follow `/home/james/AGENTS.md`, the current topology and
-operator handbook. Build/export the accepted clean commit into a new immutable
-versioned runtime, record its source/binary hashes and build metadata, and
-identify the exact consumer, service identity, state, protected credential paths
-and dependencies. Never overwrite the running binary or borrow production
-credentials for ordinary tests.
+Most releases are fast-lane deploys (`/home/james/AGENTS.md`, handbook §9.1).
+Commit, then:
 
-Prove a consistent backup and isolated restore, migration on a disposable copy,
-and the exact previous-binary/current-schema rollback behavior needed for that
-release. Preserve current user data; synthetic source tests are not permission
-to restore an older database over it. Prepare independent timed rollback before
-switching the consumer.
+```bash
+deploy/deploy.sh            # make verify, build, check-config, switch, restart
+deploy/deploy.sh --quick    # go test ./... instead of make verify, for quick iteration
+deploy/deploy.sh --status
+deploy/deploy.sh --rollback # back to the previous release
+deploy/deploy.sh --prune    # keep current, previous and the newest five
+```
 
-After the authorized switch, verify mail/UI/auth/CSRF, reminders and real-device
-actions, service/resource/storage controls, backup/monitor/heartbeat and unchanged
-dependencies. Disarm rollback only after operator acceptance. Then reconcile
-the accepted source/runtime provenance and operational documentation. Nothing in
-`make verify` performs or authorizes these live steps.
+The script refuses a dirty tree, installs a new root-owned
+`/usr/local/lib/comstac/prod-DATE.N-gSHA`, runs `check-config` against the live
+protected environment as `comstac`, runs `comstac-backup.service` first when
+`internal/store/migrations` changed since the running release, switches the
+`current` symlink, restarts only Comstac, and rolls back automatically if the
+service does not stay up. It tags the commit `production/RELEASE`. No
+checkpoint directory, timed rollback or change record is needed.
+
+A rollback with `--rollback` keeps the current database, so a migration must
+remain readable by the previous binary, or the previous release must be
+explicitly abandoned. Never restore an old SQLite snapshot over newer mail.
+
+Use the full procedure instead (checkpoint, migration rehearsal on a shadow
+copy, previous-binary proof, timed rollback, operator acceptance and a change
+record) when a release:
+
+- has a migration the previous binary cannot run against (dropped or renamed
+  columns or tables, rewritten data, changed auth/session semantics);
+- changes `/etc/comstac` configuration, credentials or TLS handling;
+- changes the unit, sandbox, resource controls, listeners or exposure.
+
+Never borrow production credentials for ordinary tests; `make verify` does not
+read them.
 
 ## Optional contact browser check
 
