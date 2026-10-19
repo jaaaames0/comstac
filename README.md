@@ -161,14 +161,15 @@ server {
 
 ### 5. Systemd service
 
-Do not overwrite a running binary with `make install`. Build from a clean
-commit with `-trimpath -buildvcs=true`, verify tests and embedded build metadata,
-then place the candidate in a new root-owned, non-writable versioned directory
-such as `/usr/local/lib/comstac/RELEASE/comstac`. Keep configuration under
-`/etc/comstac` and mutable SQLite state under `/var/lib/comstac`. Point the unit
-at the exact versioned path and restart Comstac only under an independently
-timed rollback. Retain the previous release until real inbound/outbound mail,
-login, web, database, backup and monitoring checks pass.
+Do not overwrite a running binary with `make install`. Each release is a new
+root-owned, non-writable versioned directory such as
+`/usr/local/lib/comstac/RELEASE/comstac`, built from a clean commit with
+`-trimpath -buildvcs=true`. Keep configuration under `/etc/comstac` and mutable
+SQLite state under `/var/lib/comstac`. On the Optiplex the unit runs
+`/usr/local/lib/comstac/current/comstac`, and `deploy/deploy.sh` builds,
+validates, backs up when migrations changed, switches `current` and restarts;
+see [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) for when a release instead
+needs the full checkpoint-and-timed-rollback procedure.
 
 To inspect an already installed service:
 
