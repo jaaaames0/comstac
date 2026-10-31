@@ -17,6 +17,7 @@ import (
 	"time"
 
 	authpkg "comstac/internal/auth"
+	"comstac/internal/netlisten"
 	"comstac/internal/push"
 	"comstac/internal/relay"
 	"comstac/internal/securitymetrics"
@@ -294,11 +295,15 @@ func setSecurityHeaders(w http.ResponseWriter, nonce string) {
 }
 
 func (s *Server) Run(ctx context.Context) error {
+	ln, err := netlisten.TCP(ctx, s.addr)
+	if err != nil {
+		return err
+	}
 	httpSrv := newHTTPServer(s.addr, s.Handler())
 	go shutdownOnContext(ctx, httpSrv)
 
 	slog.Info("http api listening", "component", "api", "addr", s.addr)
-	err := httpSrv.ListenAndServe()
+	err = httpSrv.Serve(ln)
 	if errors.Is(err, http.ErrServerClosed) && ctx.Err() != nil {
 		return ctx.Err()
 	}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"comstac/internal/ingest"
+	"comstac/internal/netlisten"
 	"comstac/internal/securitymetrics"
 	"comstac/internal/storageguard"
 	gosmtp "github.com/emersion/go-smtp"
@@ -48,7 +49,7 @@ func New(addr string, ingestor *ingest.Service, opts Options) *Server {
 func (s *Server) Run(ctx context.Context) error {
 	srv := s.newSMTPServer()
 	slog.Info("smtp listener starting", "component", "smtp", "addr", s.addr)
-	ln, err := net.Listen("tcp", s.addr)
+	ln, err := netlisten.TCP(ctx, s.addr)
 	if err != nil {
 		return err
 	}

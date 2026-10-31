@@ -105,6 +105,9 @@ This project adheres to Semantic Versioning.
   labels or message/user data.
 
 ### Security
+- SMTP and web listeners refuse Multipath TCP (Go enables it by default), which
+  narrows exposure to the MPTCP-demonstrated kernel bug CVE-2026-98432. This
+  does not replace a patched kernel.
 - Session tokens are stored as SHA-256 digests, so a database copy holds no
   usable cookies. Existing sessions end once on upgrade (sign in again).
 - "sign out everywhere" on the accounts page revokes all of the user's sessions;
