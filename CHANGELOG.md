@@ -25,6 +25,14 @@ This project adheres to Semantic Versioning.
   behind the existing session and CSRF protections.
 
 ### Changed
+- The back button and swipe-back follow the views: trash, spam, snoozed, a
+  stream, sent and calendar return to the inbox; search returns to the view it
+  was run from; on phones an open message, compose, contacts, accounts or the
+  calendar side panel closes first. Only back from the inbox leaves the app.
+  Switching between views replaces rather than stacks history, re-rendering
+  an open message no longer adds entries, the in-app "← back" no longer leaves
+  a dead entry behind, and a message opened from a notification goes back to
+  the inbox.
 - The calendar wheel-scrolls exactly one week per notch, whatever the OS
   lines-per-notch setting; trackpads move one week per 80px of travel.
 

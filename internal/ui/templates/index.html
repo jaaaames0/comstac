@@ -1098,9 +1098,10 @@
       // Detect ?msg= param set by the service worker when a notification is clicked.
       // Extract and clean it up immediately so the URL stays tidy.
       var notifMsgId = (location.search.match(/[?&]msg=(\d+)/) || [])[1] || null;
-      if (notifMsgId) {
-        history.replaceState(null, '', location.pathname);
-      }
+      // Every load starts at the inbox; deep links (notifications) push
+      // their view on top of it so back returns to the inbox.
+      var NAV_HOME = {view: 'm:inbox:all', search: null, layer: null};
+      history.replaceState({cs: 1, nav: NAV_HOME}, '', notifMsgId ? location.pathname : undefined);
 
       var workspace       = document.querySelector('.workspace');
       var listCol         = document.querySelector('.list-col');
@@ -1142,26 +1143,110 @@
 
       function closeDetail() {
         document.body.classList.remove('detail-open');
+        scheduleNav();
       }
       function openDetail() {
         document.body.classList.add('detail-open');
-        window._detailOpen = true;
-        history.pushState({detailOpen: true}, '');
+        scheduleNav();
+      }
+      // Dismiss the mobile overlay but keep the pane, so re-opening the same
+      // message doesn't need a network round-trip.
+      function dismissDetail() {
+        closeDetail();
+        document.querySelectorAll('.msg-row.selected').forEach(function(r) { r.classList.remove('selected'); });
+        activeMessageId = null; // prevent stale re-highlight on next filter change
       }
 
-      // Intercept the system back button: close the detail pane instead of
-      // navigating away. The suppressBack flag prevents an infinite loop when
-      // history.back() is used to undo our pushState entry.
-      var suppressBack = false;
-      window.addEventListener('popstate', function(e) {
-        if (suppressBack) { suppressBack = false; return; }
-        if (window._detailOpen) {
-          suppressBack = true;
-          window._detailOpen = false;
-          closeDetail();
-          activeMessageId = null;
-          history.back(); // undo the pushState, fires popstate again → suppressed
+      // ── Back button / history ─────────────────────────────────────
+      // Views swap content in place, so they get history entries of their
+      // own and the phone's back gesture behaves like page navigation. The
+      // stack always has this shape, each part present only when in use:
+      //   inbox ← other view (trash, spam, snoozed, a stream, sent, calendar)
+      //         ← search results ← overlay (mobile: open message, compose,
+      //           contacts or accounts; or the calendar side panel)
+      // Switching views replaces the view entry rather than piling up, so
+      // back from any view returns to the inbox, and back from the inbox
+      // leaves the app. UI code changes state as usual and calls
+      // scheduleNav(); navSync() then moves history to match.
+      var mobileQuery = window.matchMedia('(max-width: 680px)');
+      var navTimer = null, navPending = false;
+      function scheduleNav() {
+        if (!navTimer) navTimer = setTimeout(function() { navTimer = null; navSync(); }, 0);
+      }
+      function navKey(n) { return n.view + '|' + n.search + '|' + n.layer; }
+      function navView() {
+        return activePage === 'messages' ? 'm:' + activeFilter + ':' + activeStream : activePage;
+      }
+      function navDesired() {
+        var cls = document.body.classList, layer = null;
+        if (mobileQuery.matches) {
+          if (activePage === 'calendar') layer = cls.contains('cal-side-open') ? 'calside' : null;
+          else if (cls.contains('detail-open')) layer = 'detail';
         }
+        var search = activePage === 'messages' && searchListActive ? searchInput.value : null;
+        return {view: navView(), search: search, layer: layer};
+      }
+      function navCurrent() {
+        return (history.state && history.state.cs && history.state.nav) || NAV_HOME;
+      }
+      // The entries from the inbox up to state n.
+      function navEntries(n) {
+        var out = [NAV_HOME], top = NAV_HOME;
+        if (n.view !== NAV_HOME.view) out.push(top = {view: n.view, search: null, layer: null});
+        if (n.search !== null) out.push(top = {view: top.view, search: n.search, layer: null});
+        if (n.layer) out.push({view: top.view, search: top.search, layer: n.layer});
+        return out;
+      }
+      function navSync() {
+        if (navPending) return; // finishes from popstate
+        var want = navEntries(navDesired()), have = navEntries(navCurrent());
+        var p = 0;
+        while (p < want.length && p < have.length && navKey(want[p]) === navKey(have[p])) p++;
+        var back = have.length - p, add = want.slice(p);
+        if (!back && !add.length) return;
+        // Going back more than one entry, or dropping entries, is async:
+        // step back, then finish once popstate reports where we landed.
+        if (!add.length || back > 1) {
+          navPending = true;
+          history.go(-(add.length ? back - 1 : back));
+          return;
+        }
+        if (back === 1) history.replaceState({cs: 1, nav: add.shift()}, '');
+        add.forEach(function(n) { history.pushState({cs: 1, nav: n}, ''); });
+      }
+      // Back/forward: bring the UI to the entry's state.
+      function applyNav(n) {
+        var cls = document.body.classList;
+        if (n.layer !== 'detail' && cls.contains('detail-open')) dismissDetail();
+        if (n.layer !== 'calside') cls.remove('cal-side-open');
+        var search = activePage === 'messages' && searchListActive ? searchInput.value : null;
+        if (n.view !== navView() || n.search !== search) {
+          if (n.view === 'calendar') {
+            openCalendar(null);
+          } else if (n.view === 'sent') {
+            showSent();
+          } else {
+            var parts = n.view.split(':');
+            activeFilter = parts[1] || 'inbox';
+            activeStream = parts[2] || 'all';
+            if (n.search !== null) searchInput.value = n.search;
+            searchListActive = n.search !== null;
+            loadMessages(n.search !== null);
+          }
+        }
+        // Forward into an overlay: reopen it only if its content is still there.
+        if (n.layer === 'detail' && !pane.querySelector('.reader-empty')) cls.add('detail-open');
+        if (n.layer === 'calside' && activePage === 'calendar') cls.add('cal-side-open');
+      }
+      window.addEventListener('popstate', function(e) {
+        if (!e.state || !e.state.cs) return; // not ours (e.g. htmx history)
+        if (navPending) {
+          navPending = false;
+          navSync();
+          return;
+        }
+        applyNav(e.state.nav);
+        scheduleNav(); // correct anything applyNav could not restore
       });
 
       function clearPane() {
@@ -1181,6 +1266,7 @@
         document.getElementById('calendar-btn').classList.toggle('active', activePage === 'calendar');
         document.body.classList.toggle('calendar-open', activePage === 'calendar');
         if (activePage !== 'calendar') document.body.classList.remove('cal-side-open');
+        scheduleNav();
       }
 
       // Filter/stream change: reload list, then re-highlight the active row
@@ -1232,12 +1318,13 @@
       });
 
       // Sent — standalone, always clears pane
-      document.getElementById('sent-btn').addEventListener('click', function() {
+      function showSent() {
         activePage = 'sent';
         htmx.ajax('GET', '/ui/sent', {target: '#message-list', swap: 'outerHTML'});
         clearPane();
         updateNavState();
-      });
+      }
+      document.getElementById('sent-btn').addEventListener('click', showSent);
 
       // Brand — home: reset filters to default inbox
       document.getElementById('brand-btn').addEventListener('click', function() {
@@ -1247,13 +1334,10 @@
         updateNavState();
       });
 
-      // Back button (mobile) — dismiss overlay without clearing the pane,
-      // so re-opening the same message doesn't need a network round-trip.
+      // Back button (mobile) — dismiss overlay without clearing the pane.
       document.getElementById('back-btn').addEventListener('click', function(e) {
         e.stopPropagation(); // don't bubble to brand-btn click handler
-        closeDetail();
-        document.querySelectorAll('.msg-row.selected').forEach(function(r) { r.classList.remove('selected'); });
-        activeMessageId = null; // prevent stale re-highlight on next filter change
+        dismissDetail();
       });
 
       // ── Search box: clear once the list shows anything but search results ──
@@ -1265,6 +1349,7 @@
         var path = (e.detail.requestConfig && e.detail.requestConfig.path) || '';
         searchListActive = path.indexOf('/ui/search') === 0;
         if (!searchListActive) searchInput.value = '';
+        scheduleNav();
       });
 
       // ── After pane content changes: open/close + sync row read state ──
@@ -1553,7 +1638,10 @@
       }
       function calPanel(url) {
         htmx.ajax('GET', url, {target: '#cal-panel', swap: 'innerHTML'});
-        if (window.matchMedia('(max-width: 680px)').matches) document.body.classList.add('cal-side-open');
+        if (mobileQuery.matches) {
+          document.body.classList.add('cal-side-open');
+          scheduleNav();
+        }
       }
       function markSelected() {
         document.querySelectorAll('.cal-day.selected').forEach(function(d) { d.classList.remove('selected'); });
@@ -1711,6 +1799,7 @@
           calPanel('/ui/calendar/roster');
         } else if (e.target.closest('#cal-side-close')) {
           document.body.classList.remove('cal-side-open');
+          scheduleNav();
         }
       });
       document.body.addEventListener('calendar-changed', refreshCalendarGrid);
@@ -1728,7 +1817,7 @@
       // Reminder notifications open /?calendar=YYYY-MM-DD.
       var notifCalDate = (location.search.match(/[?&]calendar=(\d{4}-\d{2}-\d{2})/) || [])[1] || null;
       if (notifCalDate) {
-        history.replaceState(null, '', location.pathname);
+        history.replaceState(history.state, '', location.pathname);
         openCalendar(notifCalDate);
       }
 
