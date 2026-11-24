@@ -29,7 +29,7 @@
 <div class="cal-agenda" data-from="{{.From}}">
   {{if .Notice}}<div class="cal-notice">{{.Notice}}</div>{{end}}
   {{range .Days}}
-  {{if .Gap}}<div class="ag-gap ag-gap-{{.GapSize}}"><span>{{.Gap}} free</span></div>{{end}}
+  {{if .Gap}}<div class="ag-gap ag-gap-{{.GapSize}}"><span>{{.Gap}}</span></div>{{end}}
   <div class="ag-day{{if .Today}} ag-today{{end}}{{if .WeekBreak}} ag-weekbreak{{end}}">
     <div class="ag-head">
       <span>{{.Label}}<span class="ag-rel"> · {{.Relative}}</span></span>

@@ -18,6 +18,9 @@ This project adheres to Semantic Versioning.
   daylight-saving changes from the zone database, and common observances.
 - The calendar agenda labels each day relative to today ("in 5 days") and
   shows the empty span between listed days as a divider sized by its length.
+- Multi-day all-day events (hotel stays) are listed once in the agenda, on
+  their first day in view, and gaps they cover read "· during <stay>" rather
+  than "free".
 - Mobile pull-to-refresh on the message list, search results and Sent; it starts
   only at the top of the list and leaves horizontal row swipes alone.
 - Saved-contact address book with add/edit/delete/search, explicit sender saves

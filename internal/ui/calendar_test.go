@@ -138,3 +138,52 @@ func TestAgendaSpans(t *testing.T) {
 		t.Errorf("daysBetween across DST = %d", n)
 	}
 }
+
+func TestAgendaListsMultiDayStaysOnce(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenAndMigrate(ctx, filepath.Join(t.TempDir(), "agenda.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for _, ev := range []*store.CalendarEvent{
+		{Title: "Hotel", Kind: "stay", AllDay: true, StartLocal: "2026-12-16", EndLocal: "2026-12-22"},
+		{Title: "Flight", Kind: "flight", StartLocal: "2026-12-23T09:15", EndLocal: "2026-12-23T11:15"},
+	} {
+		if _, err := store.SaveCalendarEvent(ctx, db, ev, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	day := func(s string) time.Time { d, _ := time.ParseInLocation("2006-01-02", s, sydneyLoc); return d }
+	listing := func(a agendaData) map[string]agendaDay {
+		out := map[string]agendaDay{}
+		for _, d := range a.Days {
+			out[d.Date] = d
+		}
+		return out
+	}
+
+	a, err := buildAgenda(ctx, db, day("2026-12-16"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := listing(a)
+	if len(got["2026-12-16"].Items) != 1 || !strings.HasPrefix(got["2026-12-16"].Items[0].Time, "until ") {
+		t.Fatalf("stay not listed on its first day: %+v", got["2026-12-16"])
+	}
+	for _, d := range []string{"2026-12-17", "2026-12-20", "2026-12-21"} {
+		if _, ok := got[d]; ok {
+			t.Fatalf("stay repeated on %s", d)
+		}
+	}
+	if f := got["2026-12-23"]; f.Gap != "6 days · during Hotel" {
+		t.Fatalf("gap before flight = %q", f.Gap)
+	}
+
+	// Opened mid-stay, it is listed once on the first day in view.
+	a, _ = buildAgenda(ctx, db, day("2026-12-19"), 10)
+	got = listing(a)
+	if items := got["2026-12-19"].Items; len(items) != 1 || !strings.HasPrefix(items[0].Time, "continues to ") {
+		t.Fatalf("mid-stay listing = %+v", items)
+	}
+}

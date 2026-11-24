@@ -108,7 +108,7 @@ type agendaDay struct {
 	Today     bool
 	Items     []agendaItem
 	Holidays  []calendar.Holiday
-	Gap       string // empty span since the previous listed day, e.g. "3 days"
+	Gap       string // empty span since the previous listed day, e.g. "3 days free"
 	GapSize   string // s, m or l: how much room the gap divider takes
 	WeekBreak bool   // first listed day of a new week, with no gap divider
 }
@@ -282,6 +282,9 @@ func buildAgenda(ctx context.Context, db *sql.DB, from time.Time, days int) (age
 	}
 	today := todayLocal()
 	byDay := map[string][]agendaItem{}
+	// Days inside a multi-day all-day event (a hotel stay) after the one it
+	// is listed on, so the gap divider can say the span is not free.
+	during := map[string]string{}
 	for _, o := range occ {
 		ev := byID[o.Event.ID]
 		start := o.Start // the event's own zone, e.g. a flight's departure airport
@@ -304,10 +307,30 @@ func buildAgenda(ctx context.Context, db *sql.DB, from time.Time, days int) (age
 		if !ev.AllDay && ev.TZ != sydneyLoc.String() {
 			item.Time += " " + start.Format("MST")
 		}
-		for _, d := range occurrenceDays(o) {
-			if dt, _ := time.ParseInLocation(calendar.DateLayout, d, sydneyLoc); dt.Before(from) || !dt.Before(to) {
-				continue
+		all := occurrenceDays(o)
+		var shown []string
+		for _, d := range all {
+			if dt, _ := time.ParseInLocation(calendar.DateLayout, d, sydneyLoc); !dt.Before(from) && dt.Before(to) {
+				shown = append(shown, d)
 			}
+		}
+		if len(shown) == 0 {
+			continue
+		}
+		// A multi-day all-day event is listed once, on its first day in
+		// view, rather than repeated on every day it covers.
+		if ev.AllDay && len(all) > 1 {
+			if shown[0] != all[0] {
+				item.Time = "continues to " + lastDay.Format("Mon 2 Jan")
+			}
+			for _, d := range shown[1:] {
+				if _, taken := during[d]; !taken {
+					during[d] = ev.Title
+				}
+			}
+			shown = shown[:1]
+		}
+		for _, d := range shown {
 			byDay[d] = append(byDay[d], item)
 		}
 	}
@@ -335,7 +358,7 @@ func buildAgenda(ctx context.Context, db *sql.DB, from time.Time, days int) (age
 			Today: d.Equal(today), Items: byDay[k], Holidays: holidays[k]}
 		if i > 0 {
 			if empty := daysBetween(prev, d) - 1; empty > 0 {
-				day.Gap, day.GapSize = describeSpan(empty), gapSize(empty)
+				day.Gap, day.GapSize = describeGap(prev, empty, during), gapSize(empty)
 			} else {
 				day.WeekBreak = !weekStart(d).Equal(weekStart(prev))
 			}
@@ -345,8 +368,29 @@ func buildAgenda(ctx context.Context, db *sql.DB, from time.Time, days int) (age
 	}
 	if empty := daysBetween(prev, to) - 1; empty > 0 {
 		data.TailGap = "nothing else before " + to.Format("Mon 2 Jan")
+		if title := spanDuring(prev, empty, during); title != "" {
+			data.TailGap += " · during " + title
+		}
 	}
 	return data, nil
+}
+
+// describeGap labels the empty days after prev: "3 days free", or "3 days ·
+// during Hotel X" when a multi-day event covers any of them.
+func describeGap(prev time.Time, empty int, during map[string]string) string {
+	if title := spanDuring(prev, empty, during); title != "" {
+		return describeSpan(empty) + " · during " + title
+	}
+	return describeSpan(empty) + " free"
+}
+
+func spanDuring(prev time.Time, empty int, during map[string]string) string {
+	for i := 1; i <= empty; i++ {
+		if title, ok := during[prev.AddDate(0, 0, i).Format(calendar.DateLayout)]; ok {
+			return title
+		}
+	}
+	return ""
 }
 
 // daysBetween counts calendar days from a to b, ignoring DST hour shifts.
