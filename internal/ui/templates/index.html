@@ -1107,6 +1107,7 @@
       var listCol         = document.querySelector('.list-col');
       var pane            = document.getElementById('reading-pane');
       var activeMessageId = null; // numeric id string of currently shown message
+      var paneParentId    = null; // message a reply/forward form in the pane came from
 
       // ── Filter + stream state ─────────────────────────────────────
       var activeFilter = 'inbox';    // inbox | trash | spam
@@ -1164,6 +1165,7 @@
       //   inbox ← other view (trash, spam, snoozed, a stream, sent, calendar)
       //         ← search results ← overlay (mobile: open message, compose,
       //           contacts or accounts; or the calendar side panel)
+      //         ← reply/forward form, when opened from the message beneath it
       // Switching views replaces the view entry rather than piling up, so
       // back from any view returns to the inbox, and back from the inbox
       // leaves the app. UI code changes state as usual and calls
@@ -1181,7 +1183,7 @@
         var cls = document.body.classList, layer = null;
         if (mobileQuery.matches) {
           if (activePage === 'calendar') layer = cls.contains('cal-side-open') ? 'calside' : null;
-          else if (cls.contains('detail-open')) layer = 'detail';
+          else if (cls.contains('detail-open')) layer = paneParentId ? 'form' : 'detail';
         }
         var search = activePage === 'messages' && searchListActive ? searchInput.value : null;
         return {view: navView(), search: search, layer: layer};
@@ -1194,6 +1196,7 @@
         var out = [NAV_HOME], top = NAV_HOME;
         if (n.view !== NAV_HOME.view) out.push(top = {view: n.view, search: null, layer: null});
         if (n.search !== null) out.push(top = {view: top.view, search: n.search, layer: null});
+        if (n.layer === 'form') out.push({view: top.view, search: top.search, layer: 'detail'});
         if (n.layer) out.push({view: top.view, search: top.search, layer: n.layer});
         return out;
       }
@@ -1217,7 +1220,16 @@
       // Back/forward: bring the UI to the entry's state.
       function applyNav(n) {
         var cls = document.body.classList;
-        if (n.layer !== 'detail' && cls.contains('detail-open')) dismissDetail();
+        if (n.layer === 'detail' && paneParentId && cls.contains('detail-open')) {
+          // Back from reply/forward: show the message it came from again.
+          var parentId = paneParentId;
+          paneParentId = null;
+          activeMessageId = parentId;
+          htmx.ajax('GET', '/ui/message?id=' + encodeURIComponent(parentId), {target: '#reading-pane', swap: 'innerHTML'});
+        } else if (n.layer !== 'detail' && n.layer !== 'form' && cls.contains('detail-open')) {
+          paneParentId = null;
+          dismissDetail();
+        }
         if (n.layer !== 'calside') cls.remove('cal-side-open');
         var search = activePage === 'messages' && searchListActive ? searchInput.value : null;
         if (n.view !== navView() || n.search !== search) {
@@ -1235,7 +1247,7 @@
           }
         }
         // Forward into an overlay: reopen it only if its content is still there.
-        if (n.layer === 'detail' && !pane.querySelector('.reader-empty')) cls.add('detail-open');
+        if ((n.layer === 'detail' || n.layer === 'form') && !pane.querySelector('.reader-empty')) cls.add('detail-open');
         if (n.layer === 'calside' && activePage === 'calendar') cls.add('cal-side-open');
       }
       window.addEventListener('popstate', function(e) {
@@ -1337,7 +1349,10 @@
       // Back button (mobile) — dismiss overlay without clearing the pane.
       document.getElementById('back-btn').addEventListener('click', function(e) {
         e.stopPropagation(); // don't bubble to brand-btn click handler
-        dismissDetail();
+        // From a reply/forward, step back to its message like the system back.
+        var top = history.state && history.state.cs && history.state.nav;
+        if (top && top.layer === 'form') history.back();
+        else dismissDetail();
       });
 
       // ── Search box: clear once the list shows anything but search results ──
@@ -1392,6 +1407,10 @@
 
       pane.addEventListener('htmx:afterSwap', function(e) {
         if (e.detail && e.detail.target !== pane) return;
+        // A reply or forward opened from a message sits one back-step above it.
+        var reqPath = (e.detail.requestConfig && e.detail.requestConfig.path) || '';
+        var parent = reqPath.match(/^\/ui\/(?:reply|forward)\?id=(\d+)/);
+        paneParentId = parent ? parent[1] : null;
         if (this.querySelector('.reader-empty')) {
           closeDetail();
           activeMessageId = null;

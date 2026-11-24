@@ -40,7 +40,8 @@ This project adheres to Semantic Versioning.
   Switching between views replaces rather than stacks history, re-rendering
   an open message no longer adds entries, the in-app "← back" no longer leaves
   a dead entry behind, and a message opened from a notification goes back to
-  the inbox.
+  the inbox. On phones, back from a reply or forward (system back or the in-app
+  "← back") returns to the message it came from.
 - The calendar wheel-scrolls exactly one week per notch, whatever the OS
   lines-per-notch setting; trackpads move one week per 80px of travel.
 
