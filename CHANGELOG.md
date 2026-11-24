@@ -6,6 +6,12 @@ This project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-24
+
+First stable release: Comstac is the daily-driver mail client for all inbound
+and outbound mail, after the soak period, the September 2026 security review
+and migration-upgrade coverage in `make verify`.
+
 ### Added
 - Copy or download an email as Markdown or JSON from the message header's new
   ⋯ menu, for pasting into an LLM: subject, sender, Reply-To/Return-Path, date,

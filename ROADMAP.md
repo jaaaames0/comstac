@@ -2,9 +2,9 @@
 
 ## Current Status
 
-Comstac is a production-used `0.x` single-user mail client. Core mail, browser,
-mobile, backup-integration and security work are complete. The remaining `1.0`
-gates are a soak period and an explicit release/tag decision. Clean-install and
+Comstac `1.0.0` (2026-11-24) is the production single-user mail client. Core
+mail, browser, mobile, calendar, backup-integration and security work are
+complete, and the daily-driver soak is accepted. Clean-install and
 populated-upgrade validation are covered by the source-only `make verify` gate;
 production backup/rollback and device acceptance remain operator checks. See
 [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md). Deferred features are not blockers
@@ -149,7 +149,7 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 ---
 
 > **Core functionality is complete as of 0.8.0.**
-> What remains is UI/aesthetics polish (0.9.x) then release (1.0.0).
+> UI/aesthetics polish (0.9.x) followed, then release `1.0.0` on 2026-11-24.
 
 ---
 
@@ -173,12 +173,12 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 ## Exit Criteria
 - UI feels polished and intentional on both desktop and mobile; push notifications work on Android and desktop. ✓ (iOS PWA push requires Safari 16.4+ — not validated but architecture supports it)
 
-## Phase 10: v1.0.0
+## Phase 10: v1.0.0 ✓
 ## Objectives
 - Production-grade single-user release. Exit criterion: comstac is the primary daily driver for all inbound and outbound mail.
 
 ## Milestones
-1. Soak period — daily-driver use surfaces any remaining functional bugs. (in progress)
+1. Soak period — daily-driver use surfaces any remaining functional bugs. ✓ (accepted 2026-11-24)
 2. Full public documentation accuracy pass. ✓ (2026-09-04)
 3. Security review and hardening program: authentication/session/CSRF, browser
    and email rendering, resource/storage bounds, SMTP transport and operational
@@ -186,7 +186,7 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 4. Upgrade and migration validation from a clean install. ✓ (`make verify`;
    fresh plus populated 0005/0013/0017/0019 schemas, reopen, FTS, retained
    reminder identity and transactional failure recovery)
-5. Tagged `1.0.0` release and changelog freeze.
+5. Tagged `1.0.0` release and changelog freeze. ✓ (`v1.0.0`, 2026-11-24)
 
 The dormant token-authenticated agent SSE endpoint, whose ghost-mail consumer
 was abandoned in favour of polling, has been removed.

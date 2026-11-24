@@ -422,7 +422,7 @@ The migration suite uses synthetic populated databases at schema cutoffs 0005,
 0013, 0017 and 0019, then upgrades/reopens them with the application driver. It
 also checks fresh install, retained mail/search/calendar state and transactional
 rollback on failed migrations. See [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md)
-for the remaining soak, tag and production acceptance steps. Run development
+for the release gate, deployment and production acceptance steps. Run development
 commands with disposable configuration and state, never by loading production
 credentials or pointing at the production database.
 
