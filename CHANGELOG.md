@@ -42,6 +42,11 @@ This project adheres to Semantic Versioning.
   lines-per-notch setting; trackpads move one week per 80px of travel.
 
 ### Fixed
+- The daily AI allowance holds when run accounting fails: each attempt is
+  reserved as a pending run before NanoGPT is called (no reservation, no
+  call), and a run whose outcome cannot be recorded stays pending, still
+  counting against the allowance and keeping the message out of the
+  automatic queue.
 - Trashing or restoring from a list row no longer also opens that message, so a
   just-trashed message cannot reappear in the reading pane.
 - Delayed compose/reply autofocus respects a field already focused by the user.

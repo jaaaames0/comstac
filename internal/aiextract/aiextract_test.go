@@ -229,6 +229,54 @@ func TestServiceRun(t *testing.T) {
 	}
 }
 
+// The allowance must hold even when run accounting fails: a failed
+// reservation makes no paid call, and a failed update keeps the slot used.
+func TestServiceAllowanceSurvivesAccountingFailures(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenAndMigrate(ctx, filepath.Join(t.TempDir(), "ai.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ingestMessage(t, db, "Tickets <no-reply@tickets.example>", "Your tickets", "The Example Show, Sat 14 Nov 2026, 7:30pm.")
+	p := &fakeProposer{}
+	svc := NewService(db, p, 1, sydney)
+	svc.nowFn = func() time.Time { return time.Date(2026, 10, 2, 9, 0, 0, 0, sydney) }
+
+	if _, err := db.Exec(`CREATE TRIGGER block_reserve BEFORE INSERT ON ai_extraction_runs BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Run(ctx, 1, "sender"); err == nil || len(p.prompts) != 0 {
+		t.Fatalf("failed reservation: err=%v calls=%d, want an error and no provider call", err, len(p.prompts))
+	}
+
+	if _, err := db.Exec(`DROP TRIGGER block_reserve; CREATE TRIGGER block_finish BEFORE UPDATE ON ai_extraction_runs BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Run(ctx, 1, "sender"); err != nil || len(p.prompts) != 1 {
+		t.Fatalf("first run: err=%v calls=%d", err, len(p.prompts))
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := svc.Run(ctx, 1, "sender"); !errors.Is(err, ErrDailyLimit) {
+			t.Fatalf("retry %d after failed update: err=%v, want daily limit", i, err)
+		}
+	}
+	if len(p.prompts) != 1 {
+		t.Fatalf("provider called %d times with a limit of 1", len(p.prompts))
+	}
+	last, _ := store.LastAIRun(ctx, db, 1)
+	if last == nil || last.Status != store.AIRunPending {
+		t.Fatalf("unfinished run = %+v, want it kept pending", last)
+	}
+	// The pending row also keeps the message out of the automatic queue.
+	if _, err := db.Exec(`INSERT INTO ai_sender_domains (domain) VALUES ('tickets.example')`); err != nil {
+		t.Fatal(err)
+	}
+	if ids, err := store.PendingAISenderMessages(ctx, db, 10); err != nil || len(ids) != 0 {
+		t.Fatalf("automatic queue = %v %v, want empty", ids, err)
+	}
+}
+
 func TestServiceEligibilityAndSenderQueue(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.OpenAndMigrate(ctx, filepath.Join(t.TempDir(), "ai2.db"))

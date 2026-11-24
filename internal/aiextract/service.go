@@ -84,13 +84,19 @@ func (s *Service) Run(ctx context.Context, messageID int64, trigger string) (Sum
 	prompt := BuildPrompt(now, sent, s.loc, t.FromAddr, t.Subject, compact)
 
 	run := store.AIRun{MessageID: messageID, Model: s.proposer.Model(), Trigger: trigger}
+	// Reserve the attempt before spending: the allowance is counted from
+	// stored rows, so an unrecorded call would not count against it.
+	runID, err := store.ReserveAIRun(ctx, s.db, run)
+	if err != nil {
+		return Summary{}, err
+	}
 	resp, err := s.proposer.Propose(ctx, prompt)
 	run.InputTokens, run.OutputTokens = resp.InputTokens, resp.OutputTokens
 	run.CostMicroUSD, run.RequestID = resp.CostMicroUSD, resp.RequestID
 	run.Status = resp.Status
 	if err != nil {
 		run.Status, run.Error = "error", truncate(err.Error(), 300)
-		s.record(ctx, run)
+		s.finish(ctx, runID, run)
 		return Summary{Status: run.Status, CostMicroUSD: run.CostMicroUSD}, err
 	}
 
@@ -108,22 +114,24 @@ func (s *Service) Run(ctx context.Context, messageID int64, trigger string) (Sum
 	if run.Status == "ok" {
 		if run.Created, err = store.SaveAISuggestions(ctx, s.db, messageID, suggestions); err != nil {
 			run.Status, run.Error = "error", "store suggestions failed"
-			s.record(ctx, run)
+			s.finish(ctx, runID, run)
 			return Summary{}, err
 		}
 	}
-	s.record(ctx, run)
+	s.finish(ctx, runID, run)
 	slog.Info("ai date extraction", "component", "aiextract", "message_id", messageID, "trigger", trigger,
 		"status", run.Status, "proposed", run.Proposed, "kept", run.Kept, "dropped", dropped, "created", run.Created,
 		"input_tokens", run.InputTokens, "output_tokens", run.OutputTokens, "cost_microusd", run.CostMicroUSD)
 	return Summary{Status: run.Status, Proposed: run.Proposed, Kept: run.Kept, Created: run.Created, CostMicroUSD: run.CostMicroUSD}, nil
 }
 
-func (s *Service) record(ctx context.Context, run store.AIRun) {
+// finish stores a run's outcome. On failure the reserved row stays pending
+// and still counts against the allowance and the automatic queue.
+func (s *Service) finish(ctx context.Context, runID int64, run store.AIRun) {
 	recCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := store.RecordAIRun(recCtx, s.db, run); err != nil {
-		slog.Error("record ai run", "component", "aiextract", "err", err)
+	if err := store.FinishAIRun(recCtx, s.db, runID, run); err != nil {
+		slog.Error("record ai run", "component", "aiextract", "run_id", runID, "err", err)
 	}
 }
 

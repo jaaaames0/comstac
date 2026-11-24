@@ -29,14 +29,30 @@ type AIRun struct {
 	CreatedAt    time.Time
 }
 
-// RecordAIRun stores a run.
-func RecordAIRun(ctx context.Context, db *sql.DB, r AIRun) error {
+// AIRunPending marks a reserved run whose provider call has not finished.
+// It counts against the daily allowance like any other run, so a crash or a
+// failed update can never free a slot that may already have been paid for.
+const AIRunPending = "pending"
+
+// ReserveAIRun records an attempt before the provider is called and returns
+// its id. If it fails, the caller must not make the call.
+func ReserveAIRun(ctx context.Context, db *sql.DB, r AIRun) (int64, error) {
+	res, err := db.ExecContext(ctx, `
+		INSERT INTO ai_extraction_runs (message_id, model, trigger, status) VALUES (?, ?, ?, ?)`,
+		r.MessageID, r.Model, r.Trigger, AIRunPending)
+	if err != nil {
+		return 0, fmt.Errorf("reserve ai run: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+// FinishAIRun fills in a reserved run with its outcome.
+func FinishAIRun(ctx context.Context, db *sql.DB, id int64, r AIRun) error {
 	_, err := db.ExecContext(ctx, `
-		INSERT INTO ai_extraction_runs (message_id, model, trigger, status, input_tokens, output_tokens,
-			cost_microusd, proposed, kept, created, error, request_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.MessageID, r.Model, r.Trigger, r.Status, r.InputTokens, r.OutputTokens, r.CostMicroUSD,
-		r.Proposed, r.Kept, r.Created, r.Error, r.RequestID)
+		UPDATE ai_extraction_runs SET status = ?, input_tokens = ?, output_tokens = ?, cost_microusd = ?,
+			proposed = ?, kept = ?, created = ?, error = ?, request_id = ?
+		WHERE id = ?`,
+		r.Status, r.InputTokens, r.OutputTokens, r.CostMicroUSD, r.Proposed, r.Kept, r.Created, r.Error, r.RequestID, id)
 	return err
 }
 

@@ -82,6 +82,8 @@ func describeAIRun(r *store.AIRun) string {
 		return "AI declined this message " + when
 	case "truncated":
 		return "AI answer was cut short " + when
+	case store.AIRunPending:
+		return "AI request did not finish " + when
 	}
 	if r.Error != "" {
 		return "AI request failed " + when + ": " + r.Error
