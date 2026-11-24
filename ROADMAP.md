@@ -13,6 +13,8 @@ unless promoted below.
 The integrated calendar, recurring reminders, roster preview/import and optional
 AI date suggestions are implemented; manual event zone selection and multi-day
 timed grid spans remain deferred in [CALENDAR-DESIGN.md](CALENDAR-DESIGN.md).
+NSW public holidays, the saved address book and Markdown/JSON email export are
+also implemented.
 
 ## Product Timeline
 Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
@@ -38,7 +40,7 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 1. IMAP fetch loop with checkpoint tracking. ✓
 2. MIME normalization into message/thread tables. ✓
 3. Embedded HTML/CSS/JavaScript UI scaffold using HTMX. ✓
-4. Inbox list supports high-density view (20+ rows visible). — deferred to 0.2.x polish
+4. Inbox list supports high-density view (20+ rows visible). — deferred, not scheduled
 
 ## Exit Criteria
 - User can view both local and external messages in one stream. ✓
@@ -51,10 +53,13 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 - Add secure access and actionable mailbox operations.
 
 ## Milestones
-1. Session-based auth flow backed by SQLite.
-2. Read/unread, archive, and snooze actions.
-3. Background sync job queue for external-origin actions.
-4. Basic audit logging for auth and state changes.
+1. Session-based auth flow backed by SQLite. ✓
+2. Read/unread, archive, and snooze actions. ✓
+3. Background sync job queue for external-origin actions. ✓ (the IMAP adapter is
+   a no-op until Gmail write-back is designed; completed jobs are pruned after
+   30 days)
+4. Basic audit logging for auth and state changes. — partial: failed and
+   rate-limited logins are logged; successful logins and mailbox actions are not.
 
 ## Exit Criteria
 - Protected UI with stable local-first state handling.
@@ -80,7 +85,7 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 1. HTML email rendering — sandboxed iframe for HTML bodies; `htmlToText` stripping for FTS and plain-text fallback. ✓
 2. Sent mail view — sidebar tab backed by `outbound_messages`. ✓
 3. Full-text search — FTS5 migration + `body_text` column + search box in sidebar. ✓
-4. High-density message list (20+ rows visible). — deferred to 0.5.x polish
+4. High-density message list (20+ rows visible). — deferred, not scheduled
 
 ## Exit Criteria
 - All common email formats display correctly; user can find old messages by keyword. ✓
@@ -124,7 +129,7 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
 2. Backup/restore — independent encrypted daily snapshot service with bounded retention and isolated restore validation; the superseded bundled local/SCP helper has been removed. ✓
 3. Spam flag — `spam` boolean on messages, `Mark Spam/Not Spam` UI, auto-flag on SPF+DKIM dual failure. ✓
 4. Naive Bayes spam filter — deferred; only needed if spam becomes a problem on this private domain.
-5. Better reconciliation semantics for upstream folder/state sync — deferred to Phase 8.
+5. Better reconciliation semantics for upstream folder/state sync — deferred with Gmail write-back.
 6. Optional direct-send SMTP feature gate — deferred.
 
 ## Exit Criteria
