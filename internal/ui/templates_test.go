@@ -64,8 +64,9 @@ func TestMessageDetailRemoteImageControlAndTemplateEscaping(t *testing.T) {
 	if bodyIndex < 0 || loadIndex < 0 || loadIndex > bodyIndex {
 		t.Fatal("load-images action is not in the message header")
 	}
-	// Reply stays the first (primary) action; load images sits between snooze and spam.
-	order := []string{"↩ reply ▾", "snooze ▾", ">load images</button>", ">spam</button>", ">trash</button>"}
+	// Reply stays the first (primary) action and trash ends the row; the
+	// overflow menu after it holds export, contact, load images and spam.
+	order := []string{"↩ reply ▾", "snooze ▾", ">trash</button>", "more actions", "copy as markdown", ">save contact</button>", ">load images</button>", ">mark spam</button>"}
 	last := -1
 	for _, marker := range order {
 		i := strings.Index(blockedHTML, marker)

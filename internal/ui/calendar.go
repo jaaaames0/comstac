@@ -66,6 +66,8 @@ type calDay struct {
 	EdgeLeft   bool // 1st of a month not on Monday: boundary to the left
 	Chips      []calChip
 	More       int
+	Holidays   []calendar.Holiday
+	DayOff     bool // a public holiday
 }
 
 type calWeek struct {
@@ -100,16 +102,22 @@ type agendaItem struct {
 }
 
 type agendaDay struct {
-	Date  string
-	Label string
-	Today bool
-	Items []agendaItem
+	Date      string
+	Label     string
+	Relative  string // "today", "in 5 days", "3 weeks ago"
+	Today     bool
+	Items     []agendaItem
+	Holidays  []calendar.Holiday
+	Gap       string // empty span since the previous listed day, e.g. "3 days"
+	GapSize   string // s, m or l: how much room the gap divider takes
+	WeekBreak bool   // first listed day of a new week, with no gap divider
 }
 
 type agendaData struct {
 	From     string
 	Days     []agendaDay
 	NextFrom string
+	TailGap  string // "nothing else before Thu 8 Jan" after the last listed day
 	Notice   string
 }
 
@@ -225,6 +233,10 @@ func buildWeeks(ctx context.Context, db *sql.DB, first time.Time, count int) (ca
 			byDay[d] = append(byDay[d], chip)
 		}
 	}
+	holidays := map[string][]calendar.Holiday{}
+	for _, h := range calendar.HolidaysBetween(first, end, sydneyLoc) {
+		holidays[h.Date] = append(holidays[h.Date], h)
+	}
 	today := todayLocal()
 	var data calWeeksData
 	for w := 0; w < count; w++ {
@@ -244,6 +256,10 @@ func buildWeeks(ctx context.Context, db *sql.DB, first time.Time, count int) (ca
 				if d.Month() == time.January {
 					day.MonthLabel = d.Format("Jan 2006")
 				}
+			}
+			day.Holidays = holidays[key]
+			for _, h := range day.Holidays {
+				day.DayOff = day.DayOff || h.Public()
 			}
 			chips := byDay[key]
 			if len(chips) > calChipsPerDay {
@@ -295,21 +311,100 @@ func buildAgenda(ctx context.Context, db *sql.DB, from time.Time, days int) (age
 			byDay[d] = append(byDay[d], item)
 		}
 	}
-	keys := make([]string, 0, len(byDay))
+	holidays := map[string][]calendar.Holiday{}
+	for _, h := range calendar.HolidaysBetween(from, to, sydneyLoc) {
+		holidays[h.Date] = append(holidays[h.Date], h)
+	}
+	listed := map[string]bool{from.Format(calendar.DateLayout): true}
 	for k := range byDay {
+		listed[k] = true
+	}
+	for k := range holidays {
+		listed[k] = true
+	}
+	keys := make([]string, 0, len(listed))
+	for k := range listed {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	data := agendaData{From: from.Format(calendar.DateLayout), NextFrom: to.Format(calendar.DateLayout)}
-	fromKey := data.From
-	if len(keys) == 0 || keys[0] != fromKey {
-		keys = append([]string{fromKey}, keys...)
-	}
-	for _, k := range keys {
+	var prev time.Time
+	for i, k := range keys {
 		d, _ := time.ParseInLocation(calendar.DateLayout, k, sydneyLoc)
-		data.Days = append(data.Days, agendaDay{Date: k, Label: d.Format("Mon 2 Jan 2006"), Today: d.Equal(today), Items: byDay[k]})
+		day := agendaDay{Date: k, Label: d.Format("Mon 2 Jan 2006"), Relative: relativeDay(today, d),
+			Today: d.Equal(today), Items: byDay[k], Holidays: holidays[k]}
+		if i > 0 {
+			if empty := daysBetween(prev, d) - 1; empty > 0 {
+				day.Gap, day.GapSize = describeSpan(empty), gapSize(empty)
+			} else {
+				day.WeekBreak = !weekStart(d).Equal(weekStart(prev))
+			}
+		}
+		data.Days = append(data.Days, day)
+		prev = d
+	}
+	if empty := daysBetween(prev, to) - 1; empty > 0 {
+		data.TailGap = "nothing else before " + to.Format("Mon 2 Jan")
 	}
 	return data, nil
+}
+
+// daysBetween counts calendar days from a to b, ignoring DST hour shifts.
+func daysBetween(a, b time.Time) int {
+	ua := time.Date(a.Year(), a.Month(), a.Day(), 0, 0, 0, 0, time.UTC)
+	ub := time.Date(b.Year(), b.Month(), b.Day(), 0, 0, 0, 0, time.UTC)
+	return int(ub.Sub(ua).Hours() / 24)
+}
+
+// describeSpan renders a number of days at a glance: days under two weeks,
+// then weeks (to the half) under two months, then months (to the half).
+func describeSpan(days int) string {
+	plural := func(n float64, unit string) string {
+		s := strconv.Itoa(int(n))
+		if n != float64(int(n)) {
+			s += "½"
+		}
+		if n > 1 {
+			unit += "s"
+		}
+		return s + " " + unit
+	}
+	switch {
+	case days < 14:
+		return plural(float64(days), "day")
+	case days < 60:
+		return plural(float64(int(float64(days)/7*2+0.5))/2, "week")
+	default:
+		return plural(float64(int(float64(days)/30.44*2+0.5))/2, "month")
+	}
+}
+
+func gapSize(days int) string {
+	switch {
+	case days < 7:
+		return "s"
+	case days < 28:
+		return "m"
+	}
+	return "l"
+}
+
+// relativeDay describes d from today: "today", "tomorrow", "in 5 days",
+// "in 3 weeks", "2 months ago".
+func relativeDay(today, d time.Time) string {
+	n := daysBetween(today, d)
+	switch n {
+	case 0:
+		return "today"
+	case 1:
+		return "tomorrow"
+	case -1:
+		return "yesterday"
+	}
+	if n > 0 {
+		return "in " + describeSpan(n)
+	}
+	return describeSpan(-n) + " ago"
 }
 
 func newEventForm(date time.Time) eventFormData {

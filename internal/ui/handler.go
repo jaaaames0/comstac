@@ -74,6 +74,7 @@ func registerRoutes(mux *http.ServeMux, db *sql.DB, r mailSender, uiCfg *UIConfi
 		ai = uiCfg.AI
 	}
 	registerSuggestionRoutes(mux, db, ai)
+	registerExportRoutes(mux, db)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/" {

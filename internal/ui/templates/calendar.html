@@ -23,18 +23,20 @@
 </div>
 {{end}}
 
-{{define "calendar_weeks"}}{{range .Weeks}}<div class="cal-week" data-week="{{.Start}}" data-label="{{.Label}}">{{range .Days}}<div class="cal-day{{if .OddMonth}} cal-odd{{end}}{{if .Today}} cal-today{{end}}{{if .Past}} cal-past{{end}}{{if .EdgeTop}} cal-edge-top{{end}}{{if .EdgeLeft}} cal-edge-left{{end}}" data-date="{{.Date}}"><div class="cal-num">{{if .MonthLabel}}<span class="cal-mon">{{.MonthLabel}}</span>{{end}}<span class="cal-n">{{.Num}}</span></div>{{range .Chips}}<button type="button" class="cal-chip k-{{.Kind}}{{if .AllDay}} cal-chip--allday{{end}}" data-id="{{.ID}}" data-date="{{.Date}}">{{if .Time}}<span class="cal-chip-time">{{.Time}}</span> {{end}}{{.Title}}</button>{{end}}{{if .More}}<span class="cal-more">+{{.More}} more</span>{{end}}</div>{{end}}</div>{{end}}{{end}}
+{{define "calendar_weeks"}}{{range .Weeks}}<div class="cal-week" data-week="{{.Start}}" data-label="{{.Label}}">{{range .Days}}<div class="cal-day{{if .OddMonth}} cal-odd{{end}}{{if .Today}} cal-today{{end}}{{if .Past}} cal-past{{end}}{{if .EdgeTop}} cal-edge-top{{end}}{{if .EdgeLeft}} cal-edge-left{{end}}{{if .DayOff}} cal-dayoff{{end}}" data-date="{{.Date}}"><div class="cal-num">{{if .MonthLabel}}<span class="cal-mon">{{.MonthLabel}}</span>{{end}}<span class="cal-n">{{.Num}}</span>{{with .Holidays}}<span class="cal-hol hk-{{(index . 0).Kind}}" title="{{range $i, $h := .}}{{if $i}} · {{end}}{{$h.Name}}{{end}}">{{range $i, $h := .}}{{if $i}} · {{end}}{{$h.Name}}{{end}}</span>{{end}}</div>{{range .Chips}}<button type="button" class="cal-chip k-{{.Kind}}{{if .AllDay}} cal-chip--allday{{end}}" data-id="{{.ID}}" data-date="{{.Date}}">{{if .Time}}<span class="cal-chip-time">{{.Time}}</span> {{end}}{{.Title}}</button>{{end}}{{if .More}}<span class="cal-more">+{{.More}} more</span>{{end}}</div>{{end}}</div>{{end}}{{end}}
 
 {{define "calendar_agenda"}}
 <div class="cal-agenda" data-from="{{.From}}">
   {{if .Notice}}<div class="cal-notice">{{.Notice}}</div>{{end}}
   {{range .Days}}
-  <div class="ag-day{{if .Today}} ag-today{{end}}">
+  {{if .Gap}}<div class="ag-gap ag-gap-{{.GapSize}}"><span>{{.Gap}} free</span></div>{{end}}
+  <div class="ag-day{{if .Today}} ag-today{{end}}{{if .WeekBreak}} ag-weekbreak{{end}}">
     <div class="ag-head">
-      <span>{{.Label}}{{if .Today}} · today{{end}}</span>
+      <span>{{.Label}}<span class="ag-rel"> · {{.Relative}}</span></span>
       <button class="ag-add" type="button" title="add event on this day"
               hx-get="/ui/calendar/event?date={{.Date}}" hx-target="#cal-panel" hx-swap="innerHTML">+</button>
     </div>
+    {{range .Holidays}}<div class="ag-hol hk-{{.Kind}}">{{if eq .Kind "dst"}}◷{{else if eq .Kind "observance"}}·{{else}}★{{end}} {{.Name}}</div>{{end}}
     {{range .Items}}
     <button type="button" class="ag-item k-{{.Kind}}"
             hx-get="/ui/calendar/event?id={{.ID}}&date={{.Date}}" hx-target="#cal-panel" hx-swap="innerHTML">
@@ -42,11 +44,12 @@
       <span class="ag-title">{{.Title}}{{if .Repeats}} <span class="ag-icon" title="repeats">↻</span>{{end}}{{if .Reminder}} <span class="ag-icon" title="reminder set">⏰</span>{{end}}</span>
       {{if .Location}}<span class="ag-loc">{{.Location}}</span>{{end}}
     </button>
-    {{else}}
+    {{else}}{{if not .Holidays}}
     <div class="ag-empty">nothing scheduled</div>
-    {{end}}
+    {{end}}{{end}}
   </div>
   {{end}}
+  {{if .TailGap}}<div class="ag-gap ag-gap-s"><span>{{.TailGap}}</span></div>{{end}}
   <button class="act-s ag-more" type="button"
           hx-get="/ui/calendar/agenda?from={{.NextFrom}}" hx-target="#cal-panel" hx-swap="innerHTML">later →</button>
 </div>

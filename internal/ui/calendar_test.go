@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"comstac/internal/store"
 )
@@ -116,5 +117,24 @@ func TestBuildWeeksMarksMonthBoundariesAndChips(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Fatalf("weeks html missing %q:\n%s", want, html)
 		}
+	}
+}
+
+func TestAgendaSpans(t *testing.T) {
+	for days, want := range map[int]string{1: "1 day", 3: "3 days", 13: "13 days", 14: "2 weeks", 24: "3½ weeks",
+		59: "8½ weeks", 60: "2 months", 75: "2½ months", 365: "12 months"} {
+		if got := describeSpan(days); got != want {
+			t.Errorf("describeSpan(%d) = %q, want %q", days, got, want)
+		}
+	}
+	today := time.Date(2026, 11, 24, 0, 0, 0, 0, sydneyLoc)
+	for offset, want := range map[int]string{0: "today", 1: "tomorrow", -1: "yesterday", 5: "in 5 days", 31: "in 4½ weeks", -20: "3 weeks ago"} {
+		if got := relativeDay(today, today.AddDate(0, 0, offset)); got != want {
+			t.Errorf("relativeDay(+%d) = %q, want %q", offset, got, want)
+		}
+	}
+	// Across the April DST change a day is 23 or 25 hours.
+	if n := daysBetween(time.Date(2026, 4, 4, 0, 0, 0, 0, sydneyLoc), time.Date(2026, 4, 6, 0, 0, 0, 0, sydneyLoc)); n != 2 {
+		t.Errorf("daysBetween across DST = %d", n)
 	}
 }

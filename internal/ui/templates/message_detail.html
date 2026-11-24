@@ -48,8 +48,6 @@
         </div>
       </div>
 
-      <button class="act-s" hx-get="/ui/contacts/edit?message={{.ID}}" hx-target="#reading-pane" hx-swap="innerHTML">save contact</button>
-
       {{/* Dates and attachments open compact panels, keeping the body full height. */}}
       <div class="dropdown dropdown--cal" hx-get="/ui/calendar/suggestions?message={{.ID}}" hx-trigger="load" hx-swap="outerHTML">
         <button class="act-s cal-btn" type="button" disabled title="looking for dates" aria-label="dates">{{template "icon_cal"}}</button>
@@ -70,12 +68,9 @@
       {{/* Restore (if trashed) or secondary actions (if in inbox) */}}
       {{if .Archived}}
         {{actionBtn .ID "archive" "0" "restore" "act-s"}}
-        {{template "load_images_btn" .}}
       {{else}}
         {{/* Mark Unread — only shown once auto-read has fired */}}
-        {{if .Read}}
-          {{actionBtn .ID "read" "0" "unread" "act-s"}}
-        {{end}}
+        {{if .Read}}<span class="wide-only">{{actionBtn .ID "read" "0" "unread" "act-s"}}</span>{{end}}
 
         {{/* Snooze — dropdown when not snoozed, single unsnooze button when snoozed */}}
         {{if .SnoozeUntil}}
@@ -106,18 +101,26 @@
         </div>
         {{end}}
 
-        {{template "load_images_btn" .}}
-
-        {{/* Spam — context aware */}}
-        {{if .Spam}}
-          {{actionBtn .ID "spam" "0" "not spam" "act-s"}}
-        {{else}}
-          {{actionBtn .ID "spam" "1" "spam" "act-d"}}
-        {{end}}
-
         {{/* Trash — rightmost, danger colour */}}
         {{actionBtn .ID "archive" "1" "trash" "act-trash"}}
       {{end}}
+
+      {{/* Less frequent actions, kept in one menu so the row fits on a phone. */}}
+      <div class="dropdown dropdown--more">
+        <button class="act-s dropdown-btn more-btn" type="button" title="more" aria-label="more actions">⋯</button>
+        <div class="dropdown-menu more-menu">
+          <button class="dm-item" type="button" data-copy-export="/ui/message/export?id={{.ID}}&format=markdown">copy as markdown</button>
+          <button class="dm-item" type="button" data-copy-export="/ui/message/export?id={{.ID}}&format=json">copy as JSON</button>
+          <a class="dm-item" href="/ui/message/export?id={{.ID}}&format=markdown&download=1" download>download .md</a>
+          <div class="dm-sep"></div>
+          {{if and .Read (not .Archived)}}<span class="narrow-only">{{actionBtn .ID "read" "0" "mark unread" "dm-item"}}</span>{{end}}
+          <button class="dm-item" type="button" hx-get="/ui/contacts/edit?message={{.ID}}" hx-target="#reading-pane" hx-swap="innerHTML">save contact</button>
+          {{template "load_images_btn" .}}
+          {{if not .Archived}}
+          {{if .Spam}}{{actionBtn .ID "spam" "0" "not spam" "dm-item"}}{{else}}{{actionBtn .ID "spam" "1" "mark spam" "dm-item dm-danger"}}{{end}}
+          {{end}}
+        </div>
+      </div>
     </div>
   </div>
 
@@ -144,6 +147,6 @@
      remote-image list (managed under accounts). */}}
 {{define "load_images_btn"}}
 {{if and .BodyHTML (not .RemoteImagesLoaded)}}
-{{actionBtn .ID "allow_images" "" "load images" "act-s"}}
+{{actionBtn .ID "allow_images" "" "load images" "dm-item"}}
 {{end}}
 {{end}}

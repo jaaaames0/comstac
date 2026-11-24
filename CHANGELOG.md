@@ -7,11 +7,26 @@ This project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- Copy or download an email as Markdown or JSON from the message header's new
+  ⋯ menu, for pasting into an LLM: subject, sender, Reply-To/Return-Path, date,
+  SPF/DKIM/DMARC, flags, attachment names, and one body (HTML converted to
+  Markdown with links kept, hidden preheaders and tracking images dropped).
+  Save contact, load images, spam and (on phones) unread moved into the same
+  menu so the action row fits a phone screen.
+- NSW public holidays in the calendar grid and agenda, computed locally with
+  the weekend substitute rules, plus the Bank Holiday (banks only),
+  daylight-saving changes from the zone database, and common observances.
+- The calendar agenda labels each day relative to today ("in 5 days") and
+  shows the empty span between listed days as a divider sized by its length.
 - Mobile pull-to-refresh on the message list, search results and Sent; it starts
   only at the top of the list and leaves horizontal row swipes alone.
 - Saved-contact address book with add/edit/delete/search, explicit sender saves
   and accessible To/CC/BCC autocomplete in compose/reply. Contacts stay private
   behind the existing session and CSRF protections.
+
+### Changed
+- The calendar wheel-scrolls exactly one week per notch, whatever the OS
+  lines-per-notch setting; trackpads move one week per 80px of travel.
 
 ### Fixed
 - Trashing or restoring from a list row no longer also opens that message, so a

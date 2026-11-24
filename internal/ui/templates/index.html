@@ -536,6 +536,19 @@
     }
     .dm-custom .dm-item { border-bottom: none; padding: 4px 8px; }
     .dm-item:hover { color: var(--text); background: var(--surface-3); }
+    .more-btn { min-width: 30px; font-weight: 700; letter-spacing: .05em; }
+    .more-menu { min-width: 170px; }
+    .more-menu form { display: block !important; }
+    .more-menu .dm-item { display: block; width: 100%; text-decoration: none; }
+    .more-menu .dm-sep { border-top: 1px solid var(--border); }
+    .dm-danger:hover { color: var(--danger); }
+    /* On phones "unread" moves from the action row into the ⋯ menu. */
+    .wide-only { display: contents; }
+    .narrow-only { display: none; }
+    @media (max-width: 680px) {
+      .wide-only { display: none; }
+      .narrow-only { display: block; }
+    }
 
     /* trash button — red accent, rightmost */
     .act-trash {
@@ -847,7 +860,16 @@
     .cal-day:hover { background: var(--surface-2); }
     .cal-day.selected { background: var(--accent-dim); }
     .cal-day.cal-past .cal-n { color: var(--dim); }
-    .cal-num { display: flex; align-items: baseline; gap: 4px; font-size: 11px; color: var(--muted); }
+    .cal-num { display: flex; align-items: baseline; gap: 4px; min-width: 0; font-size: 11px; color: var(--muted); }
+    /* Holidays are labels beside the day number, not chips: they never use an event slot. */
+    .cal-hol {
+      flex: 1; min-width: 0; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .hk-public { color: #ff7b72; } .hk-bank { color: #d29922; } .hk-dst, .hk-observance { color: var(--dim); }
+    .cal-day.cal-dayoff { background: rgba(255,123,114,.045); }
+    .cal-day.cal-dayoff:hover { background: var(--surface-2); }
+    .cal-day.cal-dayoff.selected { background: var(--accent-dim); }
+    .cal-dayoff:not(.cal-today) .cal-n { color: #ff7b72; }
     .cal-mon { color: var(--accent); font-weight: 700; }
     .cal-today .cal-n {
       background: var(--accent); color: var(--bg); border-radius: 9px;
@@ -882,6 +904,18 @@
       padding-bottom: 3px; margin-bottom: 4px;
     }
     .ag-today .ag-head { color: var(--accent); }
+    .ag-rel { color: var(--dim); }
+    .ag-weekbreak { margin-top: 20px; }
+    .ag-hol { font-size: 11.5px; padding: 2px 8px 3px; }
+    /* The empty span between listed days; longer spans take more room. */
+    .ag-gap {
+      display: flex; align-items: center; gap: 8px; margin: -6px 0 8px;
+      color: var(--dim); font-size: 10.5px; white-space: nowrap;
+    }
+    .ag-gap::before, .ag-gap::after { content: ""; flex: 1; border-top: 1px dashed var(--border); }
+    .ag-gap-m { margin: 2px 0 14px; }
+    .ag-gap-l { margin: 10px 0 22px; color: var(--muted); }
+    .ag-gap-l::before, .ag-gap-l::after { border-top-style: solid; }
     .ag-add {
       background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 3px;
       font-family: var(--mono); font-size: 11px; width: 20px; height: 18px; cursor: pointer;
@@ -970,6 +1004,7 @@
       .cal-day { padding: 2px 2px; }
       .cal-chip { font-size: 9px; line-height: 13px; padding: 0 2px; }
       .cal-chip-time { display: none; }
+      .cal-hol { font-size: 8.5px; }
       .cal-side {
         position: fixed; top: var(--topbar); left: 0; width: 100%;
         height: calc(100dvh - var(--topbar)); z-index: 15;
@@ -1448,6 +1483,44 @@
         closeAllDropdowns();
       });
 
+      // ── Copy an email as Markdown or JSON (for pasting into an LLM) ──
+      // The clipboard write starts inside the click with a pending blob, so
+      // Safari keeps the user gesture while the export downloads.
+      document.addEventListener('click', function(e) {
+        var item = e.target.closest('[data-copy-export]');
+        if (!item) return;
+        var url = item.dataset.copyExport;
+        var dd = item.closest('.dropdown');
+        var btn = dd && dd.querySelector('.dropdown-btn');
+        var text = fetch(url, {credentials: 'same-origin'}).then(function(r) {
+          if (!r.ok) throw new Error('export ' + r.status);
+          return r.text();
+        });
+        var done;
+        if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+          done = navigator.clipboard.write([new ClipboardItem({
+            'text/plain': text.then(function(t) { return new Blob([t], {type: 'text/plain'}); })
+          })]).catch(function() {
+            return text.then(function(t) { return navigator.clipboard.writeText(t); });
+          });
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+          done = text.then(function(t) { return navigator.clipboard.writeText(t); });
+        } else {
+          done = Promise.reject(new Error('no clipboard'));
+        }
+        done.then(function() { flashMore(btn, '✓ copied'); }, function(err) {
+          console.error('copy failed', err);
+          flashMore(btn, 'copy failed');
+          window.location.href = url + '&download=1';
+        });
+      });
+      function flashMore(btn, label) {
+        if (!btn) return;
+        clearTimeout(btn._flash);
+        btn.textContent = label;
+        btn._flash = setTimeout(function() { btn.textContent = '⋯'; }, 1600);
+      }
+
       // ── Calendar ────────────────────────────────────────────────
       // Weeks scroll vertically without end (bounded server-side); more
       // weeks load as either edge approaches. Rows have a fixed height, so
@@ -1456,6 +1529,8 @@
       var calLoading = false;
       var calSelected = null;
       var CAL_CHUNK = 26;
+      // Wheel stepping: the week row the current wheel gesture is heading to.
+      var calWheelTarget = null, calWheelAcc = 0, calWheelIdle = null;
 
       function isoAdd(date, days) {
         var p = date.split('-').map(Number);
@@ -1492,6 +1567,45 @@
         if (!row) return;
         el.scroll.scrollTo({top: Math.max(0, row.offsetTop - row.offsetHeight), behavior: smooth ? 'smooth' : 'auto'});
       }
+      function scrollToRow(week, smooth) {
+        var el = calEls();
+        var row = el.grid && el.grid.querySelector('[data-week="' + week + '"]');
+        if (row) el.scroll.scrollTo({top: row.offsetTop, behavior: smooth ? 'smooth' : 'auto'});
+      }
+      // One wheel notch moves exactly one week, whatever the OS lines-per-notch
+      // setting: a line/page-mode event or a pixel jump of 50+ is one notch.
+      // Trackpads' small pixel deltas accumulate, one week per 80px. Notches
+      // during a step chain from its target, so fast spins never drift off
+      // a row boundary.
+      function onCalWheel(e) {
+        var el = calEls();
+        if (e.ctrlKey || !el.grid || !el.grid.firstElementChild) return;
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+        e.preventDefault();
+        var steps = 0;
+        if (e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50) {
+          steps = Math.sign(e.deltaY);
+          calWheelAcc = 0;
+        } else {
+          calWheelAcc += e.deltaY;
+          if (Math.abs(calWheelAcc) >= 80) {
+            steps = Math.sign(calWheelAcc);
+            calWheelAcc = 0;
+          }
+        }
+        clearTimeout(calWheelIdle);
+        calWheelIdle = setTimeout(function() { calWheelTarget = null; calWheelAcc = 0; }, 400);
+        if (!steps) return;
+        var rows = el.grid.children, idx = -1;
+        if (calWheelTarget) {
+          var cur = el.grid.querySelector('[data-week="' + calWheelTarget + '"]');
+          idx = cur ? Array.prototype.indexOf.call(rows, cur) : -1;
+        }
+        if (idx < 0) idx = Math.round(el.scroll.scrollTop / rows[0].offsetHeight);
+        idx = Math.max(0, Math.min(rows.length - 1, idx + steps));
+        calWheelTarget = rows[idx].dataset.week;
+        scrollToRow(calWheelTarget, true);
+      }
       function updateMonthLabel() {
         var el = calEls();
         if (!el.grid || !el.grid.firstElementChild) return;
@@ -1523,6 +1637,8 @@
               el.grid.insertAdjacentHTML('afterbegin', html);
               el.scroll.scrollTop += el.scroll.scrollHeight - before;
               g.first = from;
+              // Setting scrollTop cancels a smooth wheel step; resume it.
+              if (calWheelTarget) scrollToRow(calWheelTarget, true);
             }
             markSelected();
           })
@@ -1548,6 +1664,7 @@
         markSelected();
         scrollToWeek(el.grid.dataset.focus, false);
         updateMonthLabel();
+        el.scroll.addEventListener('wheel', onCalWheel, {passive: false});
         var ticking = false;
         el.scroll.addEventListener('scroll', function() {
           if (ticking) return;
