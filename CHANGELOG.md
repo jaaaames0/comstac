@@ -25,6 +25,11 @@ This project adheres to Semantic Versioning.
   behind the existing session and CSRF protections.
 
 ### Changed
+- HTML email laid out wider than the reading pane (fixed-width newsletters
+  and airline notices on a phone) is zoomed out to fit instead of scrolling
+  sideways, down to 0.3x. The body frame's sandbox gains `allow-same-origin`
+  so the app can measure it; sender scripts stay blocked by the sandbox (no
+  `allow-scripts`) and the body's `script-src 'none'`.
 - The back button and swipe-back follow the views: trash, spam, snoozed, a
   stream, sent and calendar return to the inbox; search returns to the view it
   was run from; on phones an open message, compose, contacts, accounts or the

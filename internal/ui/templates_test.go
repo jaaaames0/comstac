@@ -160,3 +160,19 @@ func TestRowActionButtonsDoNotAlsoOpenTheMessage(t *testing.T) {
 		}
 	}
 }
+
+// The body frame is same-origin so the app can scale it to fit; that is safe
+// only while the sandbox never allows scripts.
+func TestMessageBodyFrameSandbox(t *testing.T) {
+	var rendered bytes.Buffer
+	execute(&rendered, "message_detail", newMessageDetailData(&store.MessageDetail{ID: 4, BodyHTML: "<p>hi</p>"}, false))
+	out := rendered.String()
+	if !strings.Contains(out, `sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"`) {
+		t.Fatalf("body frame sandbox changed: %s", out)
+	}
+	for _, forbidden := range []string{"allow-scripts", "allow-forms", "allow-top-navigation", "allow-modals"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("body frame grants %s", forbidden)
+		}
+	}
+}

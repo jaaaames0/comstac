@@ -84,7 +84,7 @@ func TestRemoteImagePreferencesRequireAuthAndCSRFAndMatchMailboxOnly(t *testing.
 			t.Fatalf("allowlisted rendering retained forbidden capability %q", forbidden)
 		}
 	}
-	if !strings.Contains(trusted, "tracker.invalid/pixel") || !strings.Contains(trusted, `sandbox="allow-popups allow-popups-to-escape-sandbox"`) {
+	if !strings.Contains(trusted, "tracker.invalid/pixel") || !strings.Contains(trusted, `sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"`) {
 		t.Fatal("allowlisted rendering lost the HTTPS image or iframe sandbox")
 	}
 

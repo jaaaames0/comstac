@@ -1354,6 +1354,42 @@
 
       // ── After pane content changes: open/close + sync row read state ──
       // Guard against bubbled events from child elements (e.g. auto-read hx-swap="none").
+      // ── Scale fixed-width HTML email to fit the pane ──────────────
+      // Bodies laid out wider than the frame (a 600px newsletter on a
+      // phone) are zoomed out to the frame width instead of scrolling
+      // sideways. The frame is same-origin but script-free, so the app
+      // measures and zooms it from here. Below EMAIL_MIN_ZOOM the text
+      // would be unreadable, so the rest scrolls.
+      var EMAIL_MIN_ZOOM = 0.3;
+      function fitEmailFrame(frame) {
+        var doc;
+        try { doc = frame.contentDocument; } catch (err) { return; }
+        if (!doc || !doc.documentElement || !doc.body) return;
+        var root = doc.documentElement;
+        root.style.zoom = '';
+        // Measure once at natural size; under zoom the root's scroll and
+        // client widths are not in the same units. The 2px margin absorbs
+        // rounding in the zoomed layout.
+        var avail = root.clientWidth;
+        var need = Math.max(root.scrollWidth, doc.body.scrollWidth);
+        if (avail > 0 && need > avail + 1) {
+          root.style.zoom = String(Math.max(EMAIL_MIN_ZOOM, (avail - 2) / need));
+        }
+      }
+      function watchEmailFrame(frame) {
+        var timer = null;
+        var refit = function() {
+          clearTimeout(timer);
+          timer = setTimeout(function() { if (frame.isConnected) fitEmailFrame(frame); }, 50);
+        };
+        frame.addEventListener('load', function() {
+          fitEmailFrame(frame);
+          // Late images can widen the layout.
+          try { frame.contentDocument.addEventListener('load', refit, true); } catch (err) {}
+        });
+        if (window.ResizeObserver) new ResizeObserver(refit).observe(frame);
+      }
+
       pane.addEventListener('htmx:afterSwap', function(e) {
         if (e.detail && e.detail.target !== pane) return;
         if (this.querySelector('.reader-empty')) {
@@ -1381,6 +1417,8 @@
               }, 50);
             }
           } else {
+            var bodyFrame = wrap.querySelector('.body-iframe');
+            if (bodyFrame) watchEmailFrame(bodyFrame);
             // Sync the list row's unread indicator with the detail's read state
             var msgId = wrap.dataset.id;
             var isRead = wrap.dataset.read === '1';
