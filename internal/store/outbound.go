@@ -53,15 +53,15 @@ func ListOutbound(ctx context.Context, db *sql.DB, limit int, beforeID int64) ([
 }
 
 type OutboundRecord struct {
-	ID         int64  `json:"id"`
-	FromAddr   string `json:"from_addr"`
-	ToAddr     string `json:"to_addr"`
-	Subject    string `json:"subject"`
-	MessageID  string `json:"message_id"`
-	InReplyTo  int64  `json:"in_reply_to,omitempty"`
-	Status     string `json:"status"`
-	ErrorMsg   string `json:"error_msg,omitempty"`
-	CreatedAt  string `json:"created_at"`
+	ID        int64  `json:"id"`
+	FromAddr  string `json:"from_addr"`
+	ToAddr    string `json:"to_addr"`
+	Subject   string `json:"subject"`
+	MessageID string `json:"message_id"`
+	InReplyTo int64  `json:"in_reply_to,omitempty"`
+	Status    string `json:"status"`
+	ErrorMsg  string `json:"error_msg,omitempty"`
+	CreatedAt string `json:"created_at"`
 }
 
 func SaveOutbound(ctx context.Context, db *sql.DB, fromAddr, toAddr, subject, bodyText, messageID string, inReplyTo int64, rawMIME []byte, sendErr error) (*OutboundRecord, error) {

@@ -42,6 +42,8 @@ This project adheres to Semantic Versioning.
   lines-per-notch setting; trackpads move one week per 80px of travel.
 
 ### Fixed
+- Completed IMAP sync jobs older than 30 days are pruned hourly instead of
+  accumulating indefinitely; failed jobs are kept.
 - The daily AI allowance holds when run accounting fails: each attempt is
   reserved as a pending run before NanoGPT is called (no reservation, no
   call), and a run whose outcome cannot be recorded stays pending, still

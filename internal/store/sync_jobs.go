@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 func EnqueueIMAPSyncJob(ctx context.Context, db *sql.DB, messageID int64, action string, payload any) (bool, error) {
@@ -54,4 +55,15 @@ func messageSource(ctx context.Context, db syncJobDB, messageID int64) (string, 
 		return "", fmt.Errorf("query message source: %w", err)
 	}
 	return source, nil
+}
+
+// PruneDoneSyncJobs deletes completed jobs last updated before cutoff and
+// returns how many were removed. Failed jobs are kept as evidence.
+func PruneDoneSyncJobs(ctx context.Context, db *sql.DB, cutoff time.Time) (int64, error) {
+	res, err := db.ExecContext(ctx, `DELETE FROM sync_jobs WHERE status = 'done' AND updated_at < ?`,
+		cutoff.UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return 0, fmt.Errorf("prune sync jobs: %w", err)
+	}
+	return res.RowsAffected()
 }

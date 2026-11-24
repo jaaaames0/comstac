@@ -10,6 +10,12 @@ import (
 	"time"
 
 	"comstac/internal/imap"
+	"comstac/internal/store"
+)
+
+const (
+	pruneEvery   = time.Hour
+	doneJobsKept = 30 * 24 * time.Hour // completed jobs older than this are deleted
 )
 
 type Runner struct {
@@ -47,9 +53,18 @@ func (r *Runner) Run(ctx context.Context) error {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
 
+	var lastPrune time.Time
 	for {
 		if err := r.processOne(ctx); err != nil {
 			slog.Error("sync process", "component", "sync", "err", err)
+		}
+		if now := r.nowFn(); now.Sub(lastPrune) >= pruneEvery {
+			lastPrune = now
+			if n, err := store.PruneDoneSyncJobs(ctx, r.db, now.Add(-doneJobsKept)); err != nil {
+				slog.Error("prune sync jobs", "component", "sync", "err", err)
+			} else if n > 0 {
+				slog.Info("pruned completed sync jobs", "component", "sync", "deleted", n)
+			}
 		}
 		select {
 		case <-ctx.Done():
