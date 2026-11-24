@@ -1,5 +1,4 @@
-// Package push sends Web Push notifications to browser PWA clients
-// and maintains live SSE connections for the agent (ghost-mail integration).
+// Package push sends Web Push notifications to browser PWA clients.
 package push
 
 import (
@@ -24,14 +23,12 @@ import (
 	"comstac/internal/store"
 )
 
-// Notifier delivers Web Push notifications to all registered subscriptions,
-// and emits new_mail events to connected agent SSE clients.
+// Notifier delivers Web Push notifications to all registered subscriptions.
 type Notifier struct {
 	db           *sql.DB
 	vapidPublic  string // base64url-encoded public key, passed directly to webpush
 	vapidPrivate string
 	vapidSubject string
-	agentClients *AgentClients // nil if agent SSE not configured
 	queue        chan newMailNotification
 	workers      int
 }
@@ -51,7 +48,7 @@ type newMailNotification struct {
 	event *payload
 }
 
-func New(db *sql.DB, vapidPublic, vapidPrivate, vapidSubject string, ac *AgentClients) (*Notifier, error) {
+func New(db *sql.DB, vapidPublic, vapidPrivate, vapidSubject string) (*Notifier, error) {
 	// The webpush library prepends "mailto:" if the subject doesn't start with "https:".
 	// Strip any existing "mailto:" prefix to avoid doubling it.
 	subject := strings.TrimPrefix(vapidSubject, "mailto:")
@@ -67,7 +64,6 @@ func New(db *sql.DB, vapidPublic, vapidPrivate, vapidSubject string, ac *AgentCl
 		vapidPublic:  vapidPublic,
 		vapidPrivate: vapidPrivate,
 		vapidSubject: subject,
-		agentClients: ac,
 		queue:        make(chan newMailNotification, defaultNotificationQueueSize),
 		workers:      defaultNotificationWorkers,
 	}, nil
@@ -208,14 +204,9 @@ const (
 	maxErrorText = 200
 )
 
-// SendNewMail dispatches a "new mail" push notification to all subscriptions
-// and emits a new_mail event to all connected agent SSE clients.
+// SendNewMail dispatches a "new mail" push notification to all subscriptions.
 // Delivery errors per-subscription are logged but do not fail the call.
 func (n *Notifier) SendNewMail(ctx context.Context, subject, from string, messageID int64) {
-	// Emit to agent SSE clients.
-	if n.agentClients != nil {
-		n.agentClients.EmitNewMail(messageID, from, subject)
-	}
 	n.sendPush(ctx, "mail", mailTTL, n.mailPayload(ctx, "mail", subject, from, messageID))
 }
 

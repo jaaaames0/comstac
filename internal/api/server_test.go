@@ -27,7 +27,7 @@ func TestHealthz(t *testing.T) {
 
 	db := openTestDB(t)
 	authMgr := bootstrapAuth(t, db)
-	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 
@@ -55,7 +55,7 @@ func TestHealthzReportsStorageWarning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil)
 	srv.SetStorageGuard(guard)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
@@ -83,7 +83,7 @@ func TestMetricsIncludesStorageCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil)
 	srv.SetStorageGuard(guard)
 	var counters securitymetrics.Counters
 	counters.RecordLoginFailure()
@@ -136,7 +136,7 @@ func TestProtectedAPIRequiresLogin(t *testing.T) {
 
 	db := openTestDB(t)
 	authMgr := bootstrapAuth(t, db)
-	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 
@@ -158,7 +158,7 @@ func TestListMessagesFiltersPaginationAndDetail(t *testing.T) {
 	seedMessages(t, db)
 	authMgr := bootstrapAuth(t, db)
 
-	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 
@@ -281,7 +281,7 @@ func TestAccountsListAndCreateLocal(t *testing.T) {
 
 	db := openTestDB(t)
 	authMgr := bootstrapAuth(t, db)
-	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 

@@ -18,7 +18,6 @@ import (
 
 	authpkg "comstac/internal/auth"
 	"comstac/internal/netlisten"
-	"comstac/internal/push"
 	"comstac/internal/relay"
 	"comstac/internal/securitymetrics"
 	"comstac/internal/storageguard"
@@ -32,7 +31,6 @@ type Server struct {
 	auth         *authpkg.Manager
 	relay        *relay.Relay
 	uiCfg        *ui.UIConfig
-	agentClients *push.AgentClients
 	startedAt    time.Time
 	reqCount     atomic.Int64
 	loginLimiter *loginLimiter
@@ -67,10 +65,10 @@ const (
 	httpMaxHeaderBytes     = 1 << 20
 )
 
-func New(addr string, db *sql.DB, auth *authpkg.Manager, r *relay.Relay, uiCfg *ui.UIConfig, ac *push.AgentClients) *Server {
+func New(addr string, db *sql.DB, auth *authpkg.Manager, r *relay.Relay, uiCfg *ui.UIConfig) *Server {
 	return &Server{
 		addr: addr, db: db, auth: auth, relay: r, uiCfg: uiCfg,
-		agentClients: ac, startedAt: time.Now(), loginLimiter: newLoginLimiter(),
+		startedAt: time.Now(), loginLimiter: newLoginLimiter(),
 	}
 }
 
@@ -183,10 +181,6 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "max-age=86400")
 		_, _ = w.Write(data)
 	})
-
-	if s.agentClients != nil {
-		publicMux.Handle("/api/push/sse", s.agentClients)
-	}
 
 	protectedMux := http.NewServeMux()
 	ui.RegisterRoutes(protectedMux, s.db, s.relay, s.uiCfg)
@@ -351,7 +345,6 @@ func shutdownOnContext(ctx context.Context, httpSrv *http.Server) {
 func isPublicPath(path string) bool {
 	switch {
 	case path == "/healthz", path == "/login", path == "/api/login",
-		path == "/api/push/sse",
 		path == "/sw.js", path == "/manifest.json",
 		path == "/favicon.ico",
 		path == "/static/icon-192.png", path == "/static/icon-512.png",

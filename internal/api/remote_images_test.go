@@ -21,7 +21,7 @@ func TestRemoteImagePreferencesRequireAuthAndCSRFAndMatchMailboxOnly(t *testing.
 	forgedID := ingestHTMLMessage(t, db, `"trusted@example.com" <attacker@example.net>`)
 	trustedID := ingestHTMLMessage(t, db, `Trusted Sender <TRUSTED@EXAMPLE.COM>`)
 
-	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 
@@ -111,7 +111,7 @@ func TestLoadImagesActionAllowlistsExactSenderMailbox(t *testing.T) {
 	otherID := ingestHTMLMessage(t, db, `trusted@example.com`)
 	invalidID := ingestHTMLMessage(t, db, `not a mailbox`)
 
-	srv := api.New(":0", db, authMgr, nil, nil, nil)
+	srv := api.New(":0", db, authMgr, nil, nil)
 	baseURL, stop := runAPIServer(t, srv)
 	defer stop()
 	client := authedClient(t, baseURL)

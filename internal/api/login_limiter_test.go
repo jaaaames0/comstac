@@ -67,7 +67,7 @@ func TestLoginLimiterIsSharedAcrossHTMLAndAPIRoutes(t *testing.T) {
 	db := openLoginLimiterTestDB(t)
 	authMgr := bootstrapLoginLimiterAuth(t, db)
 	var counters securitymetrics.Counters
-	srv := New("127.0.0.1:8080", db, authMgr, nil, nil, nil)
+	srv := New("127.0.0.1:8080", db, authMgr, nil, nil)
 	srv.SetSecurityCounters(&counters)
 	handler := srv.Handler()
 
@@ -123,7 +123,7 @@ func TestLoginLimiterIsSharedAcrossHTMLAndAPIRoutes(t *testing.T) {
 func TestAPILoginRejectsOversizeBody(t *testing.T) {
 	db := openLoginLimiterTestDB(t)
 	authMgr := bootstrapLoginLimiterAuth(t, db)
-	handler := New("127.0.0.1:8080", db, authMgr, nil, nil, nil).Handler()
+	handler := New("127.0.0.1:8080", db, authMgr, nil, nil).Handler()
 
 	body := `{"username":"admin","password":"` + strings.Repeat("x", maxLoginBodyBytes) + `"}`
 	req := httptest.NewRequest(http.MethodPost, "http://example.test/api/login", strings.NewReader(body))

@@ -54,9 +54,6 @@ type Config struct {
 	VAPIDPrivateKey string
 	VAPIDSubject    string // e.g. "mailto:you@example.com"
 
-	// Agent SSE (ghost-mail integration)
-	AgentToken string
-
 	// AI date extraction (NanoGPT API); disabled when the key is empty.
 	NanoGPTAPIKey string
 	AIModel       string
@@ -170,8 +167,6 @@ func FromEnv() Config {
 		VAPIDPublicKey:  envOr("COMSTAC_VAPID_PUBLIC", ""),
 		VAPIDPrivateKey: envOr("COMSTAC_VAPID_PRIVATE", ""),
 		VAPIDSubject:    envOr("COMSTAC_VAPID_SUBJECT", ""),
-
-		AgentToken: envOr("COMSTAC_AGENT_TOKEN", ""),
 
 		NanoGPTAPIKey: envOr("COMSTAC_NANOGPT_API_KEY", ""),
 		AIModel:       envOr("COMSTAC_AI_MODEL", DefaultAIModel),
@@ -308,9 +303,6 @@ func (c Config) Validate() error {
 		if err != nil || (u.Scheme != "mailto" && u.Scheme != "https") || u.Opaque == "" && u.Host == "" {
 			problems = append(problems, "COMSTAC_VAPID_SUBJECT must be a valid mailto or HTTPS URL")
 		}
-	}
-	if c.AgentToken != "" && len(c.AgentToken) < 32 {
-		problems = append(problems, "COMSTAC_AGENT_TOKEN must be at least 32 characters when enabled")
 	}
 	if c.NanoGPTAPIKey != "" && (len(c.NanoGPTAPIKey) < 20 || strings.ContainsAny(c.NanoGPTAPIKey, " \t\r\n\"'")) {
 		problems = append(problems, "COMSTAC_NANOGPT_API_KEY must be a NanoGPT API key")

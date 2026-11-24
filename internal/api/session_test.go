@@ -13,7 +13,7 @@ import (
 
 func TestSessionCookieRenewsWithUseAndLogoutEverywhereRevokesAll(t *testing.T) {
 	db := openTestDB(t)
-	srv := httptest.NewTLSServer(api.New(":0", db, bootstrapAuth(t, db), nil, nil, nil).Handler())
+	srv := httptest.NewTLSServer(api.New(":0", db, bootstrapAuth(t, db), nil, nil).Handler())
 	defer srv.Close()
 
 	login := func() *http.Client {

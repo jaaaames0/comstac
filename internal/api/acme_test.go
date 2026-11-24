@@ -25,7 +25,7 @@ func TestACMEChallengeServesOnlyBoundedRegularTokenFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := api.New(":0", nil, nil, nil, nil, nil)
+	srv := api.New(":0", nil, nil, nil, nil)
 	srv.SetACMEChallengeDir(dir)
 	handler := srv.Handler()
 
@@ -81,7 +81,7 @@ func TestValidateACMEChallengeDirDoesNotLeakPath(t *testing.T) {
 
 func TestACMEChallengeRejectsTraversalWithoutCanonicalRedirect(t *testing.T) {
 	dir := t.TempDir()
-	srv := api.New(":0", nil, nil, nil, nil, nil)
+	srv := api.New(":0", nil, nil, nil, nil)
 	srv.SetACMEChallengeDir(dir)
 	httpServer := httptest.NewServer(srv.Handler())
 	defer httpServer.Close()

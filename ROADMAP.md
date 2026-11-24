@@ -183,9 +183,8 @@ Versioning follows SemVer, beginning at `0.1.0` for first usable alpha.
    reminder identity and transactional failure recovery)
 5. Tagged `1.0.0` release and changelog freeze.
 
-The optional token-authenticated agent SSE endpoint remains dormant code. The
-former ghost-mail consumer was abandoned in favour of polling and is not a
-`1.0` release requirement.
+The dormant token-authenticated agent SSE endpoint, whose ghost-mail consumer
+was abandoned in favour of polling, has been removed.
 
 ## Exit Criteria
 - Comstac is the primary mail client for daily use with no known functional regressions.

@@ -20,7 +20,7 @@ func TestContactsRequireSessionAndCSRFAfterLogin(t *testing.T) {
 	if err := store.SaveContact(context.Background(), db, &c); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(api.New(":0", db, mgr, nil, nil, nil).Handler())
+	srv := httptest.NewServer(api.New(":0", db, mgr, nil, nil).Handler())
 	defer srv.Close()
 	anonymous := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	for _, path := range []string{"/ui/contacts", "/ui/contacts/search?q=private", "/ui/contacts/edit?id=1"} {

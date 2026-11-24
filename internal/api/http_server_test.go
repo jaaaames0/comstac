@@ -50,7 +50,7 @@ func TestSecurityHeadersUseNonceAndDisableCaching(t *testing.T) {
 }
 
 func TestLoginAndVendoredBrowserAssets(t *testing.T) {
-	srv := New(":0", nil, nil, nil, nil, nil)
+	srv := New(":0", nil, nil, nil, nil)
 	handler := srv.Handler()
 
 	login := httptest.NewRecorder()

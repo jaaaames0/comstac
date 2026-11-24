@@ -120,17 +120,6 @@ with a current checkpoint and rollback.
 - `COMSTAC_LOCAL_RECIPIENTS` (required): comma-separated accepted full recipient addresses. Every address must belong to an accepted local domain.
   - Example: `local@example.com,alerts@example.com`
 
-## Agent Integration (ghost-mail SSE)
-- `COMSTAC_AGENT_TOKEN`: Optional token of at least 32 characters for
-  authenticating `GET /api/push/sse` through the `X-Agent-Token` header. If
-  unset, the endpoint is not registered.
-
-The former ghost-mail consumer is no longer used. In the current implementation
-new-mail SSE dispatch shares the Web Push notifier, so setting the token alone
-registers the stream but does not deliver new-mail events unless the complete
-VAPID configuration is also enabled. Treat this as a dormant integration
-surface unless a new consumer and HTTPS route are deliberately reviewed.
-
 ## AI Date Extraction (optional)
 - `COMSTAC_NANOGPT_API_KEY`: NanoGPT API key. When unset, AI extraction is
   disabled and nothing is sent anywhere. When set, the message view offers

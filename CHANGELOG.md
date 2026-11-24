@@ -41,6 +41,12 @@ This project adheres to Semantic Versioning.
 - The calendar wheel-scrolls exactly one week per notch, whatever the OS
   lines-per-notch setting; trackpads move one week per 80px of travel.
 
+### Removed
+- The dormant agent SSE endpoint (`GET /api/push/sse`) and its
+  `COMSTAC_AGENT_TOKEN` setting. Its ghost-mail consumer had been abandoned;
+  production never enabled it. A leftover token now logs a warning and is
+  ignored.
+
 ### Fixed
 - Completed IMAP sync jobs older than 30 days are pruned hourly instead of
   accumulating indefinitely; failed jobs are kept.

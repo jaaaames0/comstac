@@ -39,7 +39,7 @@ func newTestNotifier(t *testing.T) *Notifier {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := New(db, pub, priv, "mailto:test@example.com", nil)
+	n, err := New(db, pub, priv, "mailto:test@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}

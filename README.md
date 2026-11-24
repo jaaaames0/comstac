@@ -331,7 +331,6 @@ user exists it does not overwrite a rotated database credential.
 
 | Variable | Default | Description |
 |---|---|---|
-| `COMSTAC_AGENT_TOKEN` | — | Token of at least 32 characters for `GET /api/push/sse`; the endpoint is absent when unset |
 
 The SSE endpoint is retained as an optional integration surface but is not part
 of the current production workflow. In the present implementation, new-mail

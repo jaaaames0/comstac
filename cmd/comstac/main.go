@@ -143,17 +143,13 @@ func main() {
 	ingestor.SetSecurityCounters(securityCounters)
 	ingestor.SetStorageGuard(capacity)
 
-	var agentClients *push.AgentClients
-	if cfg.AgentToken != "" {
-		agentClients = push.NewAgentClients(cfg.AgentToken)
-		slog.Info("agent SSE endpoint enabled", "component", "push", "path", "/api/push/sse")
-	} else {
-		slog.Info("agent SSE not configured", "component", "push", "hint", "set COMSTAC_AGENT_TOKEN to enable")
+	if os.Getenv("COMSTAC_AGENT_TOKEN") != "" {
+		slog.Warn("COMSTAC_AGENT_TOKEN is set but the agent SSE endpoint has been removed; the setting is ignored", "component", "push")
 	}
 
 	var pushNotifier *push.Notifier
 	if cfg.VAPIDPublicKey != "" && cfg.VAPIDPrivateKey != "" && cfg.VAPIDSubject != "" {
-		pushNotifier, err = push.New(db, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject, agentClients)
+		pushNotifier, err = push.New(db, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject)
 		if err != nil {
 			slog.Error("configure push notifications", "err", err)
 			os.Exit(1)
@@ -233,7 +229,7 @@ func main() {
 		}
 	}
 
-	apiSrv := api.New(cfg.HTTPAddr, db, authMgr, outRelay, uiCfg, agentClients)
+	apiSrv := api.New(cfg.HTTPAddr, db, authMgr, outRelay, uiCfg)
 	apiSrv.SetSecurityCounters(securityCounters)
 	apiSrv.SetStorageGuard(capacity)
 	apiSrv.SetACMEChallengeDir(cfg.ACMEChallengeDir)
@@ -299,7 +295,7 @@ func runCheckConfig() {
 		os.Exit(1)
 	}
 	if cfg.VAPIDPublicKey != "" {
-		if _, err := push.New(nil, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject, nil); err != nil {
+		if _, err := push.New(nil, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject); err != nil {
 			fmt.Fprintf(os.Stderr, "configuration invalid: %v\n", err)
 			os.Exit(1)
 		}

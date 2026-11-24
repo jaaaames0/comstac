@@ -18,7 +18,7 @@ import (
 
 func TestNotificationActionsRequireSessionAndCSRF(t *testing.T) {
 	db := openTestDB(t)
-	srv := httptest.NewTLSServer(api.New(":0", db, bootstrapAuth(t, db), nil, nil, nil).Handler())
+	srv := httptest.NewTLSServer(api.New(":0", db, bootstrapAuth(t, db), nil, nil).Handler())
 	defer srv.Close()
 	client := srv.Client()
 	client.Jar = mustCookieJar(t)
@@ -115,7 +115,7 @@ func TestNotificationActionsRequireSessionAndCSRF(t *testing.T) {
 func TestCalendarNotificationSnoozeAction(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
-	srv := httptest.NewTLSServer(api.New(":0", db, bootstrapAuth(t, db), nil, nil, nil).Handler())
+	srv := httptest.NewTLSServer(api.New(":0", db, bootstrapAuth(t, db), nil, nil).Handler())
 	defer srv.Close()
 	client := srv.Client()
 	client.Jar = mustCookieJar(t)
